@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UI Comparison Tool</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+      background: #000000;
+      background-image:
+        radial-gradient(at 40% 20%, rgba(120, 119, 198, 0.15) 0px, transparent 50%),
+        radial-gradient(at 80% 0%, rgba(120, 119, 198, 0.12) 0px, transparent 50%),
+        radial-gradient(at 0% 50%, rgba(120, 119, 198, 0.08) 0px, transparent 50%);
+      min-height: 100vh;
+      padding: 40px 20px;
+      color: #f5f5f7;
+      letter-spacing: -0.022em;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 60px;
+      animation: fadeInDown 0.8s ease-out;
+    }
+
+    @keyframes fadeInDown {
+      from {
+        opacity: 0;
+        transform: translateY(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .header h1 {
+      font-size: 56px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      background: linear-gradient(90deg, #ffffff 0%, #b8b8b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.05em;
+    }
+
+    .header p {
+      font-size: 21px;
+      color: #86868b;
+      font-weight: 400;
+      max-width: 600px;
+      margin: 0 auto;
+      line-height: 1.4;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(40px);
+      -webkit-backdrop-filter: blur(40px);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 24px;
+      padding: 48px;
+      margin-bottom: 24px;
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.03),
+        0 20px 80px rgba(0, 0, 0, 0.4);
+      animation: fadeInUp 0.8s ease-out;
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .form-group {
+      margin-bottom: 28px;
+    }
+
+    label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 12px;
+      color: #f5f5f7;
+      font-size: 15px;
+      letter-spacing: -0.01em;
+    }
+
+    input[type="text"],
+    textarea {
+      width: 100%;
+      padding: 16px 18px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      font-size: 15px;
+      color: #f5f5f7;
+      font-family: 'Inter', sans-serif;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    input[type="text"]::placeholder,
+    textarea::placeholder {
+      color: #86868b;
+    }
+
+    input[type="text"]:focus,
+    textarea:focus {
+      outline: none;
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.05);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 90px;
+    }
+
+    .url-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    .btn {
+      background: #f5f5f7;
+      color: #000000;
+      border: none;
+      padding: 16px 32px;
+      font-size: 17px;
+      font-weight: 500;
+      border-radius: 12px;
+      cursor: pointer;
+      width: 100%;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      letter-spacing: -0.01em;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .btn:hover {
+      background: #ffffff;
+      transform: scale(1.01);
+      box-shadow: 0 8px 24px rgba(245, 245, 247, 0.2);
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .loading {
+      display: none;
+      text-align: center;
+      padding: 40px;
+    }
+
+    .loading.active {
+      display: block;
+    }
+
+    .spinner {
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top: 3px solid #f5f5f7;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      animation: spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .loading p {
+      color: #86868b;
+      font-size: 17px;
+      font-weight: 400;
+    }
+
+    .results {
+      display: none;
+    }
+
+    .results.active {
+      display: block;
+    }
+
+    .results h3 {
+      font-size: 28px;
+      font-weight: 600;
+      margin-bottom: 24px;
+      color: #f5f5f7;
+      letter-spacing: -0.03em;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 48px;
+    }
+
+    .summary-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 32px 28px;
+      border-radius: 18px;
+      text-align: center;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .summary-card:hover {
+      background: rgba(255, 255, 255, 0.06);
+      transform: translateY(-2px);
+    }
+
+    .summary-card h3 {
+      font-size: 48px;
+      margin-bottom: 8px;
+      font-weight: 600;
+      background: linear-gradient(135deg, #ffffff 0%, #a0a0a0 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .summary-card p {
+      color: #86868b;
+      font-size: 15px;
+      font-weight: 500;
+      margin: 0;
+    }
+
+    .screenshots {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 48px;
+    }
+
+    .screenshot-container {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .screenshot-container:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .screenshot-container h3 {
+      background: rgba(255, 255, 255, 0.03);
+      padding: 18px 24px;
+      margin: 0;
+      font-size: 17px;
+      font-weight: 500;
+      color: #f5f5f7;
+      letter-spacing: -0.01em;
+    }
+
+    .screenshot-container img {
+      width: 100%;
+      display: block;
+    }
+
+    .differences-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      margin-top: 24px;
+    }
+
+    .differences-table th,
+    .differences-table td {
+      padding: 18px 20px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .differences-table th {
+      background: rgba(255, 255, 255, 0.03);
+      font-weight: 500;
+      color: #86868b;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .differences-table td {
+      color: #f5f5f7;
+      font-size: 15px;
+    }
+
+    .differences-table tbody tr {
+      transition: background 0.2s ease;
+    }
+
+    .differences-table tbody tr:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+
+    .badge-high {
+      background: rgba(255, 69, 58, 0.15);
+      color: #ff453a;
+      border: 1px solid rgba(255, 69, 58, 0.2);
+    }
+
+    .badge-medium {
+      background: rgba(255, 159, 10, 0.15);
+      color: #ff9f0a;
+      border: 1px solid rgba(255, 159, 10, 0.2);
+    }
+
+    .badge-low {
+      background: rgba(10, 132, 255, 0.15);
+      color: #0a84ff;
+      border: 1px solid rgba(10, 132, 255, 0.2);
+    }
+
+    .badge-content {
+      background: rgba(100, 210, 255, 0.15);
+      color: #64d2ff;
+      border: 1px solid rgba(100, 210, 255, 0.2);
+    }
+
+    .badge-interactive {
+      background: rgba(191, 90, 242, 0.15);
+      color: #bf5af2;
+      border: 1px solid rgba(191, 90, 242, 0.2);
+    }
+
+    .badge-text {
+      background: rgba(50, 215, 75, 0.15);
+      color: #32d74b;
+      border: 1px solid rgba(50, 215, 75, 0.2);
+    }
+
+    .quick-links {
+      margin-top: 24px;
+      padding: 24px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+    }
+
+    .quick-links h3 {
+      margin-bottom: 16px;
+      color: #f5f5f7;
+      font-size: 17px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+
+    .quick-link-btn {
+      display: inline-block;
+      margin: 6px;
+      padding: 12px 24px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #f5f5f7;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      font-family: 'Inter', sans-serif;
+      letter-spacing: -0.01em;
+    }
+
+    .quick-link-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .quick-link-btn:active {
+      transform: scale(0.98);
+    }
+
+    input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      accent-color: #f5f5f7;
+      cursor: pointer;
+    }
+
+    @media (max-width: 768px) {
+      .url-row,
+      .screenshots {
+        grid-template-columns: 1fr;
+      }
+
+      .header h1 {
+        font-size: 40px;
+      }
+
+      .header p {
+        font-size: 18px;
+      }
+
+      .card {
+        padding: 32px 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>UI Comparison Tool</h1>
+      <p>Compare any two web pages. Instantly.</p>
+    </div>
+
+    <div class="card">
+      <form id="comparisonForm">
+        <div class="url-row">
+          <div class="form-group">
+            <label for="url1">🔗 URL 1 (Production)</label>
+            <input
+              type="text"
+              id="url1"
+              name="url1"
+              placeholder="https://www.rakuten.com?ebtoken=..."
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="url2">🔗 URL 2 (Preview/Staging)</label>
+            <input
+              type="text"
+              id="url2"
+              name="url2"
+              placeholder="https://preview-www.rakuten.com?ebtoken=..."
+              required
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="description">📝 What to compare? (Optional)</label>
+          <textarea
+            id="description"
+            name="description"
+            placeholder="e.g., Compare homepage layout, check if new feature is visible, verify button text changes..."
+          ></textarea>
+        </div>
+
+        <button type="submit" class="btn" id="compareBtn">
+          🚀 Compare Now
+        </button>
+      </form>
+
+      <div class="quick-links">
+        <h3>⚡ Quick Presets for Rakuten</h3>
+        <button class="quick-link-btn" onclick="fillRakutenHome()">🏠 Homepage</button>
+        <button class="quick-link-btn" onclick="fillRakutenAccount()">👤 Account</button>
+        <button class="quick-link-btn" onclick="fillRakutenCashBack()">💰 Cash Back Activity</button>
+      </div>
+    </div>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <h2>🔍 Analyzing UI differences...</h2>
+      <p>This may take 10-30 seconds</p>
+    </div>
+
+    <div class="results" id="results">
+      <div class="card">
+        <h2>📊 Comparison Results</h2>
+
+        <div class="summary-grid">
+          <div class="summary-card">
+            <h3 id="totalDiffs">0</h3>
+            <p>Total Differences</p>
+          </div>
+          <div class="summary-card">
+            <h3 id="highSeverity">0</h3>
+            <p>High Priority</p>
+          </div>
+          <div class="summary-card">
+            <h3 id="mediumSeverity">0</h3>
+            <p>Medium Priority</p>
+          </div>
+          <div class="summary-card">
+            <h3 id="lowSeverity">0</h3>
+            <p>Low Priority</p>
+          </div>
+        </div>
+
+        <h3>📸 Visual Comparison</h3>
+
+        <!-- Toggle for highlighted view -->
+        <div style="text-align: center; margin-bottom: 20px;">
+          <label style="font-size: 16px; cursor: pointer;">
+            <input type="checkbox" id="showHighlighted" onchange="toggleHighlightedView()" style="margin-right: 8px; cursor: pointer;" checked />
+            Show Highlighted Differences
+          </label>
+        </div>
+
+        <div class="screenshots">
+          <div class="screenshot-container">
+            <h3>URL 1</h3>
+            <img id="screenshot1" src="" alt="URL 1 Screenshot" />
+          </div>
+          <div class="screenshot-container">
+            <h3>URL 2</h3>
+            <img id="screenshot2" src="" alt="URL 2 Screenshot" />
+          </div>
+        </div>
+
+        <!-- Diff visualization -->
+        <div id="diffSection" style="margin-top: 20px; display: none;">
+          <h3>🔍 Pixel-Level Differences</h3>
+          <div style="text-align: center;">
+            <img id="diffImage" src="" alt="Difference Map" style="max-width: 100%; border: 2px solid #667eea; border-radius: 8px;" />
+          </div>
+        </div>
+
+        <h3>🔍 Detailed Differences</h3>
+        <table class="differences-table" id="differencesTable">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Category</th>
+              <th>Severity</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="differencesBody">
+          </tbody>
+        </table>
+
+        <div style="margin-top: 30px; text-align: center;">
+          <button class="btn" onclick="location.reload()">🔄 New Comparison</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const ebtoken = "eyJhbGciOiJSUzI1NiJ9.eyJjcnQiOjE3NTgxNTQzNDQxNzcsImxsdCI6MTc1ODE1NDM0NDE3NywibUlkIjoiMTQ1Mzg2MzZBRTQzQjRDOTI4QUJCQzYifQ.rfgcLkNDYRB3SIpTU0upuCQ4nlHalSmRV_0tGdT_yi-yUOPJSe0VyyQ2fGtutdcf9UAI2xaXTYtsHiIDrYUY_7DyfUBk5dtynELqqS4pPcgWixQUr62s7VsJz05CWHYDOn47MyDabCRoV7rwYHqhG3FccrF3TUECwnGmLFunXiA";
+
+    function fillRakutenHome() {
+      document.getElementById('url1').value = `https://www.rakuten.com?ebtoken=${ebtoken}`;
+      document.getElementById('url2').value = `https://preview-www.rakuten.com?ebtoken=${ebtoken}`;
+      document.getElementById('description').value = 'Compare homepage layout and promotional content';
+    }
+
+    function fillRakutenAccount() {
+      document.getElementById('url1').value = `https://www.rakuten.com/account?ebtoken=${ebtoken}`;
+      document.getElementById('url2').value = `https://preview-www.rakuten.com/account?ebtoken=${ebtoken}`;
+      document.getElementById('description').value = 'Compare account dashboard';
+    }
+
+    function fillRakutenCashBack() {
+      document.getElementById('url1').value = `https://www.rakuten.com/account/cash-back-activity?ebtoken=${ebtoken}`;
+      document.getElementById('url2').value = `https://preview-www.rakuten.com/account/cash-back-activity?ebtoken=${ebtoken}`;
+      document.getElementById('description').value = 'Compare cash back activity page';
+    }
+
+    document.getElementById('comparisonForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const url1 = document.getElementById('url1').value;
+      const url2 = document.getElementById('url2').value;
+      const description = document.getElementById('description').value;
+
+      // Show loading
+      document.getElementById('loading').classList.add('active');
+      document.getElementById('results').classList.remove('active');
+      document.getElementById('compareBtn').disabled = true;
+
+      try {
+        const response = await fetch('/api/compare', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ url1, url2, description })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          displayResults(data.result);
+        } else {
+          alert('Error: ' + data.error);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      } finally {
+        document.getElementById('loading').classList.remove('active');
+        document.getElementById('compareBtn').disabled = false;
+      }
+    });
+
+    // Store screenshot paths globally for toggle function
+    let screenshotPaths = {};
+
+    function displayResults(result) {
+      // Update summary
+      document.getElementById('totalDiffs').textContent = result.differences.length;
+      document.getElementById('highSeverity').textContent = result.summary.bySeverity.high || 0;
+      document.getElementById('mediumSeverity').textContent = result.summary.bySeverity.medium || 0;
+      document.getElementById('lowSeverity').textContent = result.summary.bySeverity.low || 0;
+
+      // Store screenshot paths
+      screenshotPaths = {
+        url1: result.screenshots.url1,
+        url2: result.screenshots.url2,
+        highlighted1: result.screenshots.highlighted?.url1,
+        highlighted2: result.screenshots.highlighted?.url2,
+        diff: result.screenshots.diff
+      };
+
+      // Update screenshots (default to highlighted if available)
+      const showHighlighted = document.getElementById('showHighlighted').checked;
+      if (showHighlighted && screenshotPaths.highlighted1) {
+        document.getElementById('screenshot1').src = '/' + screenshotPaths.highlighted1;
+        document.getElementById('screenshot2').src = '/' + screenshotPaths.highlighted2;
+      } else {
+        document.getElementById('screenshot1').src = '/' + screenshotPaths.url1;
+        document.getElementById('screenshot2').src = '/' + screenshotPaths.url2;
+      }
+
+      // Show diff image if available
+      if (screenshotPaths.diff) {
+        document.getElementById('diffImage').src = '/' + screenshotPaths.diff;
+        document.getElementById('diffSection').style.display = 'block';
+      }
+
+      // Update differences table
+      const tbody = document.getElementById('differencesBody');
+      tbody.innerHTML = '';
+
+      if (result.differences.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px;">✅ No differences found! Both URLs have identical UI.</td></tr>';
+      } else {
+        result.differences.forEach(diff => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td><span class="badge badge-${diff.type.toLowerCase()}">${diff.type}</span></td>
+            <td>${diff.category}</td>
+            <td><span class="badge badge-${diff.severity}">${diff.severity}</span></td>
+            <td>${diff.detail}</td>
+          `;
+          tbody.appendChild(row);
+        });
+      }
+
+      // Show results
+      document.getElementById('results').classList.add('active');
+      document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Toggle between highlighted and original screenshots
+    function toggleHighlightedView() {
+      const showHighlighted = document.getElementById('showHighlighted').checked;
+
+      if (showHighlighted && screenshotPaths.highlighted1) {
+        document.getElementById('screenshot1').src = '/' + screenshotPaths.highlighted1;
+        document.getElementById('screenshot2').src = '/' + screenshotPaths.highlighted2;
+      } else if (screenshotPaths.url1) {
+        document.getElementById('screenshot1').src = '/' + screenshotPaths.url1;
+        document.getElementById('screenshot2').src = '/' + screenshotPaths.url2;
+      }
+    }
+  </script>
+</body>
+</html>

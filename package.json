@@ -1,0 +1,22 @@
+{
+  "name": "webdiff",
+  "version": "1.0.0",
+  "description": "Compare two web pages for differences in layout, text, and colors",
+  "type": "module",
+  "main": "webdiff.js",
+  "scripts": {
+    "compare": "node webdiff.js",
+    "server": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "cheerio": "^1.0.0-rc.12",
+    "express": "^4.21.2",
+    "node-fetch": "^3.3.2",
+    "pixelmatch": "^7.1.0",
+    "playwright": "^1.56.0",
+    "pngjs": "^7.0.0",
+    "sharp": "^0.34.4"
+  }
+}
