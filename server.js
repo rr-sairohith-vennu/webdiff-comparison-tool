@@ -1576,17 +1576,21 @@ app.post('/api/compare', async (req, res) => {
     console.log(`\n🔍 Starting comparison: ${url1} vs ${url2}`);
 
     // Parse multiple click actions separated by commas
-    const clickActions = clickAction
+    // ALWAYS compare default view first, then compare button states if provided
+    const buttonActions = clickAction
       ? clickAction.split(',').map(action => action.trim()).filter(Boolean)
-      : [null];
+      : [];
 
-    if (clickActions.length > 1) {
-      console.log(`  🖱️  Multiple click actions detected: ${clickActions.join(', ')}`);
-    } else if (clickActions[0]) {
-      console.log(`  🖱️  Click action: "${clickActions[0]}"`);
+    // Build comparison list: [null (default), ...buttonActions]
+    const clickActions = [null, ...buttonActions];
+
+    if (buttonActions.length > 0) {
+      console.log(`  🖱️  Will compare: Default view + [${buttonActions.join(', ')}]`);
+    } else {
+      console.log(`  📍 Will compare: Default view only`);
     }
 
-    // Run comparison for each click action
+    // Run comparison for each state (default + button states)
     const results = [];
     for (const action of clickActions) {
       console.log(action ? `\n  📍 Comparing with "${action}" clicked...` : '\n  📍 Comparing default view...');
