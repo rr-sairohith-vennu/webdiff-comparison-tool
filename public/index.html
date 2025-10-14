@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UI Comparison Tool</title>
+  <script src="/socket.io/socket.io.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
@@ -176,33 +177,89 @@
 
     .loading {
       display: none;
-      text-align: center;
-      padding: 40px;
+      padding: 40px 20px;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
     }
 
     .loading.active {
-      display: block;
+      display: flex;
     }
 
-    .spinner {
-      border: 3px solid rgba(255, 255, 255, 0.1);
-      border-top: 3px solid #f5f5f7;
+    .simple-loading-container {
+      text-align: center;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    .loading-spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid rgba(99, 102, 241, 0.1);
+      border-top-color: #6366f1;
       border-radius: 50%;
-      width: 50px;
-      height: 50px;
-      animation: spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-      margin: 0 auto 20px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 30px;
     }
 
     @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+      to { transform: rotate(360deg); }
     }
 
-    .loading p {
-      color: #86868b;
-      font-size: 17px;
-      font-weight: 400;
+    .simple-loading-container h2 {
+      font-size: 28px;
+      font-weight: 600;
+      color: #f5f5f7;
+      margin: 0 0 12px 0;
+    }
+
+    .loading-message {
+      font-size: 16px;
+      color: #9ca3af;
+      margin: 0 0 30px 0;
+    }
+
+    .simple-progress-bar {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+
+    .simple-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #6366f1, #a855f7);
+      transition: width 0.3s ease;
+    }
+
+    .progress-text {
+      font-size: 14px;
+      color: #6b7280;
+      font-weight: 500;
+    }
+
+    /* Animated Progress Bar */
+    .animated-progress-bar {
+      width: 100%;
+      max-width: 600px;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 0 auto;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #6366f1, #a855f7);
+      border-radius: 4px;
+      transition: width 0.3s ease;
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.6);
     }
 
     .results {
@@ -264,6 +321,7 @@
       grid-template-columns: 1fr 1fr;
       gap: 24px;
       margin-bottom: 48px;
+      position: relative;
     }
 
     .screenshot-container {
@@ -272,6 +330,7 @@
       border-radius: 16px;
       overflow: hidden;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
     }
 
     .screenshot-container:hover {
@@ -322,11 +381,11 @@
     }
 
     .differences-table tbody tr {
-      transition: background 0.2s ease;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .differences-table tbody tr:hover {
-      background: rgba(255, 255, 255, 0.02);
+      background: rgba(255, 255, 255, 0.05);
     }
 
     .badge {
@@ -362,60 +421,6 @@
       border: 1px solid rgba(100, 210, 255, 0.2);
     }
 
-    .badge-interactive {
-      background: rgba(191, 90, 242, 0.15);
-      color: #bf5af2;
-      border: 1px solid rgba(191, 90, 242, 0.2);
-    }
-
-    .badge-text {
-      background: rgba(50, 215, 75, 0.15);
-      color: #32d74b;
-      border: 1px solid rgba(50, 215, 75, 0.2);
-    }
-
-    .quick-links {
-      margin-top: 24px;
-      padding: 24px;
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 16px;
-    }
-
-    .quick-links h3 {
-      margin-bottom: 16px;
-      color: #f5f5f7;
-      font-size: 17px;
-      font-weight: 500;
-      letter-spacing: -0.01em;
-    }
-
-    .quick-link-btn {
-      display: inline-block;
-      margin: 6px;
-      padding: 12px 24px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #f5f5f7;
-      border-radius: 10px;
-      cursor: pointer;
-      font-size: 15px;
-      font-weight: 500;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      font-family: 'Inter', sans-serif;
-      letter-spacing: -0.01em;
-    }
-
-    .quick-link-btn:hover {
-      background: rgba(255, 255, 255, 0.08);
-      border-color: rgba(255, 255, 255, 0.2);
-      transform: translateY(-1px);
-    }
-
-    .quick-link-btn:active {
-      transform: scale(0.98);
-    }
-
     input[type="checkbox"] {
       width: 20px;
       height: 20px;
@@ -446,8 +451,8 @@
 <body>
   <div class="container">
     <div class="header">
-      <h1>UI Comparison Tool</h1>
-      <p>Compare any two web pages. Instantly.</p>
+      <h1>🎯 Visual Comparison</h1>
+      <p>Compare Production vs Preview. Instantly.</p>
     </div>
 
     <div class="card">
@@ -474,34 +479,39 @@
               required
             />
           </div>
-        </div>
 
-        <div class="form-group">
-          <label for="description">📝 What to compare? (Optional)</label>
-          <textarea
-            id="description"
-            name="description"
-            placeholder="e.g., Compare homepage layout, check if new feature is visible, verify button text changes..."
-          ></textarea>
+          <div class="form-group">
+            <label for="clickAction">🖱️ Click Actions (Optional)</label>
+            <input
+              type="text"
+              id="clickAction"
+              name="clickAction"
+              placeholder="e.g., All, Confirmed, Pending, Payments"
+            />
+            <small style="display: block; margin-top: 8px; color: #86868b; font-size: 13px;">
+              Enter button text or CSS selector. Use commas to compare multiple states
+            </small>
+          </div>
         </div>
 
         <button type="submit" class="btn" id="compareBtn">
           🚀 Compare Now
         </button>
       </form>
-
-      <div class="quick-links">
-        <h3>⚡ Quick Presets for Rakuten</h3>
-        <button class="quick-link-btn" onclick="fillRakutenHome()">🏠 Homepage</button>
-        <button class="quick-link-btn" onclick="fillRakutenAccount()">👤 Account</button>
-        <button class="quick-link-btn" onclick="fillRakutenCashBack()">💰 Cash Back Activity</button>
-      </div>
     </div>
 
     <div class="loading" id="loading">
-      <div class="spinner"></div>
-      <h2>🔍 Analyzing UI differences...</h2>
-      <p>This may take 10-30 seconds</p>
+      <div class="simple-loading-container">
+        <div class="loading-spinner"></div>
+        <h2>Comparing Pages...</h2>
+        <p class="loading-message" id="loadingMessage">Please wait</p>
+        <div class="simple-progress-bar">
+          <div class="simple-progress-fill" id="simpleProgressFill"></div>
+        </div>
+        <div class="progress-text">
+          <span id="simpleProgressPercent">0</span>%
+        </div>
+      </div>
     </div>
 
     <div class="results" id="results">
@@ -527,50 +537,10 @@
           </div>
         </div>
 
-        <h3>📸 Visual Comparison</h3>
+        <div id="comparisonsContainer"></div>
 
-        <!-- Toggle for highlighted view -->
-        <div style="text-align: center; margin-bottom: 20px;">
-          <label style="font-size: 16px; cursor: pointer;">
-            <input type="checkbox" id="showHighlighted" onchange="toggleHighlightedView()" style="margin-right: 8px; cursor: pointer;" checked />
-            Show Highlighted Differences
-          </label>
-        </div>
-
-        <div class="screenshots">
-          <div class="screenshot-container">
-            <h3>URL 1</h3>
-            <img id="screenshot1" src="" alt="URL 1 Screenshot" />
-          </div>
-          <div class="screenshot-container">
-            <h3>URL 2</h3>
-            <img id="screenshot2" src="" alt="URL 2 Screenshot" />
-          </div>
-        </div>
-
-        <!-- Diff visualization -->
-        <div id="diffSection" style="margin-top: 20px; display: none;">
-          <h3>🔍 Pixel-Level Differences</h3>
-          <div style="text-align: center;">
-            <img id="diffImage" src="" alt="Difference Map" style="max-width: 100%; border: 2px solid #667eea; border-radius: 8px;" />
-          </div>
-        </div>
-
-        <h3>🔍 Detailed Differences</h3>
-        <table class="differences-table" id="differencesTable">
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>Category</th>
-              <th>Severity</th>
-              <th>Details</th>
-            </tr>
-          </thead>
-          <tbody id="differencesBody">
-          </tbody>
-        </table>
-
-        <div style="margin-top: 30px; text-align: center;">
+        <div style="margin-top: 30px; text-align: center; display: flex; gap: 15px; justify-content: center;">
+          <button class="btn" onclick="generateShareReport()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">📤 Share Report</button>
           <button class="btn" onclick="location.reload()">🔄 New Comparison</button>
         </div>
       </div>
@@ -578,34 +548,52 @@
   </div>
 
   <script>
-    const ebtoken = "eyJhbGciOiJSUzI1NiJ9.eyJjcnQiOjE3NTgxNTQzNDQxNzcsImxsdCI6MTc1ODE1NDM0NDE3NywibUlkIjoiMTQ1Mzg2MzZBRTQzQjRDOTI4QUJCQzYifQ.rfgcLkNDYRB3SIpTU0upuCQ4nlHalSmRV_0tGdT_yi-yUOPJSe0VyyQ2fGtutdcf9UAI2xaXTYtsHiIDrYUY_7DyfUBk5dtynELqqS4pPcgWixQUr62s7VsJz05CWHYDOn47MyDabCRoV7rwYHqhG3FccrF3TUECwnGmLFunXiA";
+    // Connect to Socket.IO for real-time updates
+    const socket = io();
 
-    function fillRakutenHome() {
-      document.getElementById('url1').value = `https://www.rakuten.com?ebtoken=${ebtoken}`;
-      document.getElementById('url2').value = `https://preview-www.rakuten.com?ebtoken=${ebtoken}`;
-      document.getElementById('description').value = 'Compare homepage layout and promotional content';
-    }
+    let currentProgress = 0;
+    let lastComparisonResult = null;
 
-    function fillRakutenAccount() {
-      document.getElementById('url1').value = `https://www.rakuten.com/account?ebtoken=${ebtoken}`;
-      document.getElementById('url2').value = `https://preview-www.rakuten.com/account?ebtoken=${ebtoken}`;
-      document.getElementById('description').value = 'Compare account dashboard';
-    }
+    socket.on('progress', (data) => {
+      console.log('Progress update:', data);
+      if (data.step && data.detail) {
+        const progressPercent = document.getElementById('simpleProgressPercent');
+        const progressFill = document.getElementById('simpleProgressFill');
+        const loadingMessage = document.getElementById('loadingMessage');
 
-    function fillRakutenCashBack() {
-      document.getElementById('url1').value = `https://www.rakuten.com/account/cash-back-activity?ebtoken=${ebtoken}`;
-      document.getElementById('url2').value = `https://preview-www.rakuten.com/account/cash-back-activity?ebtoken=${ebtoken}`;
-      document.getElementById('description').value = 'Compare cash back activity page';
-    }
+        // Map steps to progress percentages
+        const stepProgressMap = {
+          1: 15,   // Loading page 1
+          2: 30,   // Loading page 2
+          3: 45,   // Clicking buttons
+          4: 65,   // Taking screenshots
+          5: 80,   // Analyzing elements
+          6: 95    // Drawing differences
+        };
+
+        currentProgress = stepProgressMap[data.step] || 0;
+
+        if (progressPercent) {
+          progressPercent.textContent = currentProgress;
+        }
+
+        if (progressFill) {
+          progressFill.style.width = currentProgress + '%';
+        }
+
+        if (loadingMessage) {
+          loadingMessage.textContent = data.detail;
+        }
+      }
+    });
 
     document.getElementById('comparisonForm').addEventListener('submit', async (e) => {
       e.preventDefault();
 
       const url1 = document.getElementById('url1').value;
       const url2 = document.getElementById('url2').value;
-      const description = document.getElementById('description').value;
+      const clickAction = document.getElementById('clickAction').value.trim();
 
-      // Show loading
       document.getElementById('loading').classList.add('active');
       document.getElementById('results').classList.remove('active');
       document.getElementById('compareBtn').disabled = true;
@@ -616,94 +604,280 @@
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ url1, url2, description })
+          body: JSON.stringify({ url1, url2, clickAction: clickAction || null })
         });
 
         const data = await response.json();
 
         if (data.success) {
-          displayResults(data.result);
+          // Update to 100% complete
+          const progressPercent = document.getElementById('simpleProgressPercent');
+          const progressFill = document.getElementById('simpleProgressFill');
+          const loadingMessage = document.getElementById('loadingMessage');
+
+          if (progressPercent) progressPercent.textContent = '100';
+          if (progressFill) progressFill.style.width = '100%';
+          if (loadingMessage) loadingMessage.textContent = '✅ Comparison complete!';
+
+          setTimeout(() => {
+            document.getElementById('loading').classList.remove('active');
+            document.getElementById('results').classList.add('active');
+            displayResults(data.result);
+          }, 500);
         } else {
-          alert('Error: ' + data.error);
+          // Better error message formatting
+          const errorMsg = data.error || 'An error occurred during comparison';
+          alert('⚠️ ' + errorMsg);
+          document.getElementById('loading').classList.remove('active');
         }
       } catch (error) {
-        alert('Error: ' + error.message);
-      } finally {
+        alert('❌ Error: ' + error.message);
         document.getElementById('loading').classList.remove('active');
+      } finally {
         document.getElementById('compareBtn').disabled = false;
       }
     });
 
-    // Store screenshot paths globally for toggle function
-    let screenshotPaths = {};
-
     function displayResults(result) {
-      // Update summary
-      document.getElementById('totalDiffs').textContent = result.differences.length;
-      document.getElementById('highSeverity').textContent = result.summary.bySeverity.high || 0;
-      document.getElementById('mediumSeverity').textContent = result.summary.bySeverity.medium || 0;
-      document.getElementById('lowSeverity').textContent = result.summary.bySeverity.low || 0;
+      // Store the result for sharing
+      lastComparisonResult = result;
 
-      // Store screenshot paths
-      screenshotPaths = {
-        url1: result.screenshots.url1,
-        url2: result.screenshots.url2,
-        highlighted1: result.screenshots.highlighted?.url1,
-        highlighted2: result.screenshots.highlighted?.url2,
-        diff: result.screenshots.diff
-      };
+      // Handle both single comparison and multiple comparisons
+      const comparisons = result.comparisons || [result];
 
-      // Update screenshots (default to highlighted if available)
-      const showHighlighted = document.getElementById('showHighlighted').checked;
-      if (showHighlighted && screenshotPaths.highlighted1) {
-        document.getElementById('screenshot1').src = '/' + screenshotPaths.highlighted1;
-        document.getElementById('screenshot2').src = '/' + screenshotPaths.highlighted2;
-      } else {
-        document.getElementById('screenshot1').src = '/' + screenshotPaths.url1;
-        document.getElementById('screenshot2').src = '/' + screenshotPaths.url2;
-      }
+      // Calculate total stats across all comparisons
+      let totalDiffs = 0, highCount = 0, mediumCount = 0, lowCount = 0;
+      comparisons.forEach(comp => {
+        totalDiffs += comp.differences.length;
+        highCount += comp.summary.bySeverity.high || 0;
+        mediumCount += comp.summary.bySeverity.medium || 0;
+        lowCount += comp.summary.bySeverity.low || 0;
+      });
 
-      // Show diff image if available
-      if (screenshotPaths.diff) {
-        document.getElementById('diffImage').src = '/' + screenshotPaths.diff;
-        document.getElementById('diffSection').style.display = 'block';
-      }
+      document.getElementById('totalDiffs').textContent = totalDiffs;
+      document.getElementById('highSeverity').textContent = highCount;
+      document.getElementById('mediumSeverity').textContent = mediumCount;
+      document.getElementById('lowSeverity').textContent = lowCount;
 
-      // Update differences table
-      const tbody = document.getElementById('differencesBody');
-      tbody.innerHTML = '';
+      const container = document.getElementById('comparisonsContainer');
+      container.innerHTML = '';
 
-      if (result.differences.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px;">✅ No differences found! Both URLs have identical UI.</td></tr>';
-      } else {
-        result.differences.forEach(diff => {
-          const row = document.createElement('tr');
-          row.innerHTML = `
-            <td><span class="badge badge-${diff.type.toLowerCase()}">${diff.type}</span></td>
-            <td>${diff.category}</td>
-            <td><span class="badge badge-${diff.severity}">${diff.severity}</span></td>
-            <td>${diff.detail}</td>
-          `;
-          tbody.appendChild(row);
-        });
-      }
+      // Display each comparison as a separate section
+      comparisons.forEach((comp, index) => {
+        const section = document.createElement('div');
+        section.style.marginBottom = '48px';
 
-      // Show results
+        const buttonLabel = comp.clickedButton || 'Default View';
+
+        section.innerHTML = `
+          <h3 style="font-size: 24px; margin-bottom: 24px;">
+            🖱️ ${buttonLabel}
+          </h3>
+
+          <div class="screenshots" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 48px;">
+            <div class="screenshot-container">
+              <h3>URL 1 (Production)</h3>
+              <img src="/${comp.screenshots.highlighted?.url1 || comp.screenshots.url1}" alt="URL 1 Screenshot" />
+            </div>
+            <div class="screenshot-container">
+              <h3>URL 2 (Preview)</h3>
+              <img src="/${comp.screenshots.highlighted?.url2 || comp.screenshots.url2}" alt="URL 2 Screenshot" />
+            </div>
+          </div>
+
+          <h3 style="font-size: 20px; margin-bottom: 16px;">🔍 Detailed Differences (${comp.differences.length})</h3>
+          <table class="differences-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Category</th>
+                <th>Severity</th>
+                <th>URL 1 Value</th>
+                <th>URL 2 Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${comp.differences.length === 0 ?
+                '<tr><td colspan="5" style="text-align: center; padding: 40px;">✅ No differences found!</td></tr>' :
+                comp.differences.map(diff => {
+                  const truncate = (str, len = 100) => {
+                    if (!str || str === 'Not present') return str;
+                    return str.length > len ? str.substring(0, len) + '...' : str;
+                  };
+
+                  return `
+                    <tr>
+                      <td><span class="badge badge-${diff.type.toLowerCase()}">${diff.type}</span></td>
+                      <td><strong>${diff.category}</strong></td>
+                      <td><span class="badge badge-${diff.severity}">${diff.severity}</span></td>
+                      <td style="max-width: 250px; word-break: break-word; font-size: 13px;">
+                        ${truncate(diff.url1Value)}
+                      </td>
+                      <td style="max-width: 250px; word-break: break-word; font-size: 13px;">
+                        ${truncate(diff.url2Value)}
+                      </td>
+                    </tr>
+                  `;
+                }).join('')
+              }
+            </tbody>
+          </table>
+        `;
+
+        container.appendChild(section);
+      });
+
       document.getElementById('results').classList.add('active');
       document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
     }
 
-    // Toggle between highlighted and original screenshots
-    function toggleHighlightedView() {
-      const showHighlighted = document.getElementById('showHighlighted').checked;
-
-      if (showHighlighted && screenshotPaths.highlighted1) {
-        document.getElementById('screenshot1').src = '/' + screenshotPaths.highlighted1;
-        document.getElementById('screenshot2').src = '/' + screenshotPaths.highlighted2;
-      } else if (screenshotPaths.url1) {
-        document.getElementById('screenshot1').src = '/' + screenshotPaths.url1;
-        document.getElementById('screenshot2').src = '/' + screenshotPaths.url2;
+    function generateShareReport() {
+      if (!lastComparisonResult) {
+        alert('No comparison results available to share!');
+        return;
       }
+
+      const comparisons = lastComparisonResult.comparisons || [lastComparisonResult];
+      const url1 = document.getElementById('url1').value;
+      const url2 = document.getElementById('url2').value;
+
+      // Build HTML report
+      let report = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>UI Comparison Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 40px; background: #f5f5f7; color: #1d1d1f; }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; }
+    .header h1 { margin: 0 0 10px 0; font-size: 32px; }
+    .urls { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .url-row { margin: 10px 0; }
+    .url-label { font-weight: 600; color: #667eea; }
+    .url-value { color: #666; word-break: break-all; font-size: 14px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
+    .stat-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .stat-card h3 { font-size: 36px; margin: 0 0 10px 0; }
+    .stat-card p { margin: 0; color: #666; font-size: 14px; }
+    .comparison { background: white; padding: 25px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .comparison h2 { margin: 0 0 20px 0; color: #1d1d1f; font-size: 24px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #f5f5f7; padding: 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #ddd; }
+    td { padding: 12px; border-bottom: 1px solid #eee; }
+    .badge { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+    .badge-high { background: #ffe5e5; color: #d32f2f; }
+    .badge-medium { background: #fff4e5; color: #f57c00; }
+    .badge-low { background: #e8f5e9; color: #388e3c; }
+    .badge-added { background: #e8f5e9; color: #2e7d32; }
+    .badge-removed { background: #ffebee; color: #c62828; }
+    .badge-modified { background: #fff3e0; color: #ef6c00; }
+    .footer { text-align: center; color: #666; margin-top: 40px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📊 UI Comparison Report</h1>
+    <p>Generated on ${new Date().toLocaleString()}</p>
+  </div>
+
+  <div class="urls">
+    <div class="url-row">
+      <div class="url-label">🔵 Production URL:</div>
+      <div class="url-value">${url1}</div>
+    </div>
+    <div class="url-row">
+      <div class="url-label">🟣 Preview/QA URL:</div>
+      <div class="url-value">${url2}</div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <h3>${document.getElementById('totalDiffs').textContent}</h3>
+      <p>Total Differences</p>
+    </div>
+    <div class="stat-card">
+      <h3 style="color: #d32f2f;">${document.getElementById('highSeverity').textContent}</h3>
+      <p>High Priority</p>
+    </div>
+    <div class="stat-card">
+      <h3 style="color: #f57c00;">${document.getElementById('mediumSeverity').textContent}</h3>
+      <p>Medium Priority</p>
+    </div>
+    <div class="stat-card">
+      <h3 style="color: #388e3c;">${document.getElementById('lowSeverity').textContent}</h3>
+      <p>Low Priority</p>
+    </div>
+  </div>
+`;
+
+      // Add each comparison section
+      comparisons.forEach(comp => {
+        const clickAction = comp.clickAction ? ` - ${comp.clickAction}` : '';
+        report += `
+  <div class="comparison">
+    <h2>🔍 Comparison${clickAction}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Category</th>
+          <th>Severity</th>
+          <th>Production Value</th>
+          <th>Preview Value</th>
+        </tr>
+      </thead>
+      <tbody>
+`;
+
+        if (comp.differences && comp.differences.length > 0) {
+          comp.differences.forEach(diff => {
+            const truncate = (text) => text && text.length > 100 ? text.substring(0, 100) + '...' : (text || 'N/A');
+            report += `
+        <tr>
+          <td><span class="badge badge-${diff.type.toLowerCase()}">${diff.type}</span></td>
+          <td><strong>${diff.category}</strong></td>
+          <td><span class="badge badge-${diff.severity}">${diff.severity}</span></td>
+          <td>${truncate(diff.url1Value)}</td>
+          <td>${truncate(diff.url2Value)}</td>
+        </tr>
+`;
+          });
+        } else {
+          report += `
+        <tr>
+          <td colspan="5" style="text-align: center; color: #4caf50; font-weight: 600;">✅ No differences found</td>
+        </tr>
+`;
+        }
+
+        report += `
+      </tbody>
+    </table>
+  </div>
+`;
+      });
+
+      report += `
+  <div class="footer">
+    <p>Generated by UI Comparison Tool</p>
+    <p>Powered by Playwright + Node.js</p>
+  </div>
+</body>
+</html>`;
+
+      // Create and download the report
+      const blob = new Blob([report], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ui-comparison-report-${Date.now()}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      alert('✅ Share report downloaded! You can open and share the HTML file.');
     }
   </script>
 </body>

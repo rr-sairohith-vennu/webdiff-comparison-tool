@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -12,7 +14,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const httpServer = createServer(app);
+const io = new Server(httpServer);
+const PORT = process.env.PORT || 4000;
 
 // Middleware
 app.use(express.json());
@@ -29,9 +33,16 @@ app.use('/results', express.static('results'));
 
 // UI Comparison Engine
 class UIComparisonEngine {
-  constructor(config) {
+  constructor(config, socket = null) {
     this.config = config;
     this.results = [];
+    this.socket = socket;
+  }
+
+  emit(event, data) {
+    if (this.socket) {
+      this.socket.emit('progress', { event, ...data });
+    }
   }
 
   async handlePopups(page, url) {
@@ -65,113 +76,290 @@ class UIComparisonEngine {
     ];
 
     console.log(`  🔍 Checking for popups on ${url}...`);
-    let popupClosed = false;
+    let totalPopupsClosed = 0;
 
-    // Try each selector
-    for (const selector of popupSelectors) {
-      try {
-        const element = await page.locator(selector).first();
-        if (await element.isVisible({ timeout: 1000 })) {
-          await element.click({ timeout: 2000 });
-          console.log(`  ✅ Popup closed successfully using selector: ${selector}`);
-          popupClosed = true;
-          await page.waitForTimeout(1500); // Wait for popup animation to complete
-          break;
+    // Try multiple rounds to catch delayed popups (up to 3 attempts)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let popupClosedThisRound = false;
+
+      // Try each selector
+      for (const selector of popupSelectors) {
+        try {
+          const element = await page.locator(selector).first();
+          if (await element.isVisible({ timeout: 500 })) {
+            await element.click({ timeout: 2000 });
+            console.log(`  ✅ Popup closed using selector: ${selector}`);
+            popupClosedThisRound = true;
+            totalPopupsClosed++;
+            await page.waitForTimeout(1000); // Wait for popup animation
+            break;
+          }
+        } catch (error) {
+          // Selector not found or not clickable, continue to next
+          continue;
         }
-      } catch (error) {
-        // Selector not found or not clickable, continue to next
-        continue;
       }
-    }
 
-    // Also try to detect and close popups by evaluating common patterns
-    if (!popupClosed) {
-      const jsPopupClosed = await page.evaluate(() => {
-        // Look for elements that might be popups/modals/banners
-        const possiblePopups = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .popup, [class*="modal"], [class*="popup"], [class*="banner"]');
+      // Also try JavaScript-based popup detection
+      if (!popupClosedThisRound) {
+        const jsPopupClosed = await page.evaluate(() => {
+          // Look for elements that might be popups/modals/banners
+          const possiblePopups = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .popup, [class*="modal"], [class*="popup"], [class*="banner"], [class*="overlay"]');
 
-        for (const popup of possiblePopups) {
-          const style = window.getComputedStyle(popup);
-          if (style.display !== 'none' && style.visibility !== 'hidden' && popup.offsetParent !== null) {
-            // Look for close button within the popup
-            const closeButton = popup.querySelector('button[aria-label*="close" i], button[class*="close" i], [class*="close"]');
-            if (closeButton) {
-              closeButton.click();
-              return true;
+          for (const popup of possiblePopups) {
+            const style = window.getComputedStyle(popup);
+            if (style.display !== 'none' && style.visibility !== 'hidden' && popup.offsetParent !== null) {
+              // Look for close button within the popup
+              const closeButton = popup.querySelector('button[aria-label*="close" i], button[class*="close" i], button, [class*="close"]');
+              if (closeButton && closeButton.offsetParent !== null) {
+                closeButton.click();
+                return true;
+              }
             }
           }
-        }
-        return false;
-      });
+          return false;
+        });
 
-      if (jsPopupClosed) {
-        console.log('  ✅ Popup closed successfully using JavaScript evaluation');
-        popupClosed = true;
-        await page.waitForTimeout(1500);
+        if (jsPopupClosed) {
+          console.log('  ✅ Popup closed using JavaScript evaluation');
+          popupClosedThisRound = true;
+          totalPopupsClosed++;
+          await page.waitForTimeout(1000);
+        }
+      }
+
+      // If no popup found this round, we're done
+      if (!popupClosedThisRound) {
+        break;
+      }
+
+      // Wait a bit before next attempt to catch delayed popups
+      await page.waitForTimeout(1000);
+    }
+
+    if (totalPopupsClosed === 0) {
+      console.log('  ℹ️  No popup detected');
+    } else {
+      console.log(`  ✅ Total popups closed: ${totalPopupsClosed}`);
+    }
+
+    return totalPopupsClosed > 0;
+  }
+
+  async handleClickAction(page, clickAction) {
+    if (!clickAction) return false;
+
+    console.log(`  🖱️  Attempting to click: "${clickAction}"`);
+
+    try {
+      // Try as button text first (most common case)
+      const buttonByText = page.locator(`button:has-text("${clickAction}")`).first();
+      if (await buttonByText.isVisible({ timeout: 3000 })) {
+        await buttonByText.click();
+        console.log(`  ✅ Clicked button with text: "${clickAction}"`);
+        await page.waitForTimeout(2000); // Wait for content to update
+        return true;
+      }
+    } catch (e) {
+      // Button by text not found, continue
+    }
+
+    try {
+      // Try as CSS selector
+      const elementBySelector = page.locator(clickAction).first();
+      if (await elementBySelector.isVisible({ timeout: 2000 })) {
+        await elementBySelector.click();
+        console.log(`  ✅ Clicked element with selector: "${clickAction}"`);
+        await page.waitForTimeout(2000);
+        return true;
+      }
+    } catch (e) {
+      // Selector not found
+    }
+
+    try {
+      // Try as aria-label
+      const elementByAria = page.locator(`[aria-label="${clickAction}"]`).first();
+      if (await elementByAria.isVisible({ timeout: 2000 })) {
+        await elementByAria.click();
+        console.log(`  ✅ Clicked element with aria-label: "${clickAction}"`);
+        await page.waitForTimeout(2000);
+        return true;
+      }
+    } catch (e) {
+      // Aria-label not found
+    }
+
+    console.log(`  ⚠️  Could not find clickable element: "${clickAction}"`);
+    return false;
+  }
+
+  async addTextCoordinates(page1, page2, differences) {
+    for (const diff of differences) {
+      if (diff.category === 'Text Added' && diff.examples) {
+        // Find coordinates on page2 (URL 2)
+        const coordinates = [];
+        for (const text of diff.examples.slice(0, 10)) { // Check more items
+          try {
+            const bounds = await page2.evaluate((searchText) => {
+              // Find all text nodes that contain the search text
+              const allBounds = [];
+              const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+              let node;
+
+              while (node = walker.nextNode()) {
+                const nodeText = node.textContent.trim();
+                // Try exact match first, then contains match
+                if (nodeText === searchText.trim() || nodeText.includes(searchText.trim())) {
+                  const parent = node.parentElement;
+                  if (parent) {
+                    const rect = parent.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                      allBounds.push({
+                        x: Math.round(rect.left + window.scrollX),
+                        y: Math.round(rect.top + window.scrollY),
+                        width: Math.round(rect.width),
+                        height: Math.round(rect.height)
+                      });
+                    }
+                  }
+                }
+              }
+              return allBounds.length > 0 ? allBounds[0] : null;
+            }, text);
+
+            if (bounds && bounds.width > 0 && bounds.height > 0) {
+              coordinates.push({ url2: bounds });
+            }
+          } catch (e) {
+            // Skip if not found
+          }
+        }
+        if (coordinates.length > 0) {
+          diff.coordinates = coordinates;
+          // If text contains currency, make it high severity
+          if (diff.examples.some(t => t.match(/\$[\d,]+\.?\d*/))) {
+            diff.severity = 'high';
+          }
+        }
+      } else if (diff.category === 'Text Removed' && diff.examples) {
+        // Find coordinates on page1 (URL 1)
+        const coordinates = [];
+        for (const text of diff.examples.slice(0, 10)) {
+          try {
+            const bounds = await page1.evaluate((searchText) => {
+              const allBounds = [];
+              const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+              let node;
+
+              while (node = walker.nextNode()) {
+                const nodeText = node.textContent.trim();
+                if (nodeText === searchText.trim() || nodeText.includes(searchText.trim())) {
+                  const parent = node.parentElement;
+                  if (parent) {
+                    const rect = parent.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                      allBounds.push({
+                        x: Math.round(rect.left + window.scrollX),
+                        y: Math.round(rect.top + window.scrollY),
+                        width: Math.round(rect.width),
+                        height: Math.round(rect.height)
+                      });
+                    }
+                  }
+                }
+              }
+              return allBounds.length > 0 ? allBounds[0] : null;
+            }, text);
+
+            if (bounds && bounds.width > 0 && bounds.height > 0) {
+              coordinates.push({ url1: bounds });
+            }
+          } catch (e) {
+            // Skip if not found
+          }
+        }
+        if (coordinates.length > 0) {
+          diff.coordinates = coordinates;
+          // If text contains currency, make it high severity
+          if (diff.examples.some(t => t.match(/\$[\d,]+\.?\d*/))) {
+            diff.severity = 'high';
+          }
+        }
       }
     }
-
-    if (!popupClosed) {
-      console.log('  ℹ️  No popup detected');
-    }
-
-    return popupClosed;
   }
 
   async capturePageData(page, url) {
-    // Use 'load' event which is more reliable than 'networkidle' for sites with continuous network activity
-    await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+    // Use 'networkidle' for better stability - waits for network to be idle
+    this.emit('step', { step: 1, detail: `🌐 Loading ${new URL(url).hostname}...` });
 
-    // Wait longer for authentication to process and page to render
-    await page.waitForTimeout(8000);
-
-    // Handle popups/modals/banners
-    const popupClosed = await this.handlePopups(page, url);
-
-    // If popup was closed, verify we're still on the correct URL
-    if (popupClosed) {
-      await page.waitForTimeout(2000); // Extra wait after popup close
-
-      const currentUrl = page.url();
-      const targetPath = new URL(url).pathname + new URL(url).search;
-      const currentPath = new URL(currentUrl).pathname + new URL(currentUrl).search;
-
-      // If we got redirected to a different page, navigate back
-      if (currentPath !== targetPath) {
-        console.log(`  ⚠️  Page redirected after popup close. Re-navigating to: ${url}`);
-        await page.goto(url, { waitUntil: 'load', timeout: 30000 });
-        await page.waitForTimeout(3000);
-
-        // Check for popups again after re-navigation
-        await this.handlePopups(page, url);
-      }
+    try {
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 90000 });
+    } catch (error) {
+      // If networkidle times out, try with domcontentloaded
+      console.log(`  ⚠️  Network idle timeout, trying with domcontentloaded...`);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(2000); // Wait a bit for content to load
     }
 
-    // Check if we're stuck on a login page by looking for login indicators
-    const hasLoginModal = await page.evaluate(() => {
-      const signInText = document.body.innerText;
-      return signInText.includes('Sign In') && signInText.includes('Password');
+    this.emit('step', { step: 1, detail: `⚙️ Freezing animations for stable capture...` });
+    // Freeze animations and transitions for stable comparison
+    await page.evaluate(() => {
+      // Disable CSS animations and transitions
+      const style = document.createElement('style');
+      style.textContent = `
+        *, *::before, *::after {
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+        }
+      `;
+      document.head.appendChild(style);
+
+      // Stop any video/gif autoplay
+      document.querySelectorAll('video, img[src$=".gif"]').forEach(el => {
+        if (el.tagName === 'VIDEO') el.pause();
+      });
     });
 
-    if (hasLoginModal) {
-      console.log('  ⚠️  Login modal detected, waiting longer for auth...');
-      await page.waitForTimeout(5000);
+    this.emit('step', { step: 2, detail: `🔍 Scanning for popups and modals...` });
+    // Brief wait - networkidle already ensures page is loaded
+    await page.waitForTimeout(1500);
+
+    // Handle popups/modals/banners (try multiple times for delayed popups)
+    this.emit('step', { step: 2, detail: `🚫 Closing detected popups...` });
+    const popupClosed = await this.handlePopups(page, url);
+
+    if (this.config.clickAction) {
+      this.emit('step', { step: 3, detail: `👆 Clicking "${this.config.clickAction}" button...` });
+      const clicked = await this.handleClickAction(page, this.config.clickAction);
+      if (clicked) {
+        this.emit('step', { step: 3, detail: `⏳ Waiting for content to update...` });
+        await page.waitForTimeout(2000);
+      }
     }
 
-    // Wait for dynamic content to fully load (like cash back amounts, user data, etc.)
-    console.log('  ⏳ Waiting for dynamic content to fully render...');
-    await page.waitForTimeout(3000);
+    // Brief wait if popup was closed
+    if (popupClosed) {
+      await page.waitForTimeout(500);
+    }
 
-    // Additional smart wait: Check if content is still changing
-    let previousContent = '';
-    for (let i = 0; i < 3; i++) {
-      const currentContent = await page.evaluate(() => document.body.innerText);
-      if (currentContent === previousContent) {
-        break; // Content stable
-      }
-      previousContent = currentContent;
+    // Wait for dynamic content to fully load
+    console.log('  ⏳ Waiting for dynamic content to fully render...');
+    await page.waitForTimeout(2000);
+
+    // Check if content is stable
+    let previousContent = await page.evaluate(() => document.body.innerText);
+    await page.waitForTimeout(1000);
+    const currentContent = await page.evaluate(() => document.body.innerText);
+
+    if (previousContent !== currentContent) {
+      // Content still changing, wait a bit more
       await page.waitForTimeout(1500);
     }
+
     console.log('  ✅ Content rendering complete');
 
     const data = await page.evaluate(() => {
@@ -195,7 +383,8 @@ class UIComparisonEngine {
         buttons: [],
         links: [],
         forms: [],
-        images: []
+        images: [],
+        currencyAmounts: [] // NEW: Track all currency with context and position
       };
 
       // Extract headings
@@ -218,10 +407,19 @@ class UIComparisonEngine {
         }
       });
 
-      // Extract buttons
+      // Extract buttons with coordinates
       document.querySelectorAll('button, input[type="button"], input[type="submit"], [role="button"]').forEach(el => {
         if (isVisible(el)) {
-          data.buttons.push(extractText(el) || el.value || el.getAttribute('aria-label') || 'Unlabeled');
+          const rect = el.getBoundingClientRect();
+          data.buttons.push({
+            text: extractText(el) || el.value || el.getAttribute('aria-label') || 'Unlabeled',
+            bounds: {
+              x: Math.round(rect.left + window.scrollX),
+              y: Math.round(rect.top + window.scrollY),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height)
+            }
+          });
         }
       });
 
@@ -257,6 +455,42 @@ class UIComparisonEngine {
         }
       });
 
+      // Extract all currency amounts with position and context
+      const currencyPattern = /\$[\d,]+\.?\d*/g;
+      document.querySelectorAll('*').forEach(el => {
+        if (isVisible(el) && el.children.length === 0) { // Leaf elements only
+          const text = extractText(el);
+          const matches = text.match(currencyPattern);
+          if (matches) {
+            matches.forEach(amount => {
+              const rect = el.getBoundingClientRect();
+              // Get context (nearby text or parent labels)
+              let context = '';
+              let parent = el.parentElement;
+              while (parent && !context) {
+                const parentText = extractText(parent);
+                if (parentText.length > 0 && parentText.length < 100) {
+                  context = parentText;
+                  break;
+                }
+                parent = parent.parentElement;
+              }
+
+              data.currencyAmounts.push({
+                amount,
+                context: context.substring(0, 50),
+                bounds: {
+                  x: Math.round(rect.left + window.scrollX),
+                  y: Math.round(rect.top + window.scrollY),
+                  width: Math.round(rect.width),
+                  height: Math.round(rect.height)
+                }
+              });
+            });
+          }
+        }
+      });
+
       return {
         ...data,
         visibleText: [...new Set(data.visibleText)].sort()
@@ -273,9 +507,12 @@ class UIComparisonEngine {
     if (data1.title !== data2.title) {
       differences.push({
         type: 'Text',
-        category: 'Page Title',
+        category: 'Page Title Changed',
         severity: 'high',
-        detail: `URL 1: "${data1.title}" vs URL 2: "${data2.title}"`
+        detail: `Title has changed`,
+        url1Value: data1.title,
+        url2Value: data2.title,
+        location: 'Page Title (<title> tag)'
       });
     }
 
@@ -290,8 +527,12 @@ class UIComparisonEngine {
         type: 'Content',
         category: 'Headings Added',
         severity: 'medium',
-        detail: headingsAdded.slice(0, 5).join('; '),
-        count: headingsAdded.length
+        detail: `${headingsAdded.length} new heading(s) found in URL 2`,
+        url1Value: 'Not present',
+        url2Value: headingsAdded.slice(0, 5).join('; '),
+        location: 'Page Headings (H1-H6)',
+        count: headingsAdded.length,
+        fullList: headingsAdded
       });
     }
 
@@ -300,22 +541,40 @@ class UIComparisonEngine {
         type: 'Content',
         category: 'Headings Removed',
         severity: 'medium',
-        detail: headingsRemoved.slice(0, 5).join('; '),
-        count: headingsRemoved.length
+        detail: `${headingsRemoved.length} heading(s) missing in URL 2`,
+        url1Value: headingsRemoved.slice(0, 5).join('; '),
+        url2Value: 'Not present',
+        location: 'Page Headings (H1-H6)',
+        count: headingsRemoved.length,
+        fullList: headingsRemoved
       });
     }
 
     // Compare buttons
-    const buttonsAdded = data2.buttons.filter(b => !data1.buttons.includes(b));
-    const buttonsRemoved = data1.buttons.filter(b => !data2.buttons.includes(b));
+    const button1Texts = data1.buttons.map(b => typeof b === 'string' ? b : b.text);
+    const button2Texts = data2.buttons.map(b => typeof b === 'string' ? b : b.text);
+
+    const buttonsAdded = data2.buttons.filter(b => {
+      const text = typeof b === 'string' ? b : b.text;
+      return !button1Texts.includes(text);
+    });
+    const buttonsRemoved = data1.buttons.filter(b => {
+      const text = typeof b === 'string' ? b : b.text;
+      return !button2Texts.includes(text);
+    });
 
     if (buttonsAdded.length > 0) {
       differences.push({
         type: 'Interactive',
         category: 'Buttons Added',
         severity: 'high',
-        detail: buttonsAdded.slice(0, 5).map(b => `"${b}"`).join('; '),
-        count: buttonsAdded.length
+        detail: `${buttonsAdded.length} new button(s) found in URL 2`,
+        url1Value: 'Not present',
+        url2Value: buttonsAdded.slice(0, 5).map(b => `"${typeof b === 'string' ? b : b.text}"`).join(', '),
+        location: 'Interactive Buttons (<button> elements)',
+        count: buttonsAdded.length,
+        fullList: buttonsAdded,
+        coordinates: buttonsAdded.filter(b => typeof b === 'object' && b.bounds).map(b => ({ url2: b.bounds }))
       });
     }
 
@@ -324,8 +583,13 @@ class UIComparisonEngine {
         type: 'Interactive',
         category: 'Buttons Removed',
         severity: 'high',
-        detail: buttonsRemoved.slice(0, 5).map(b => `"${b}"`).join('; '),
-        count: buttonsRemoved.length
+        detail: `${buttonsRemoved.length} button(s) missing in URL 2`,
+        url1Value: buttonsRemoved.slice(0, 5).map(b => `"${typeof b === 'string' ? b : b.text}"`).join(', '),
+        url2Value: 'Not present',
+        location: 'Interactive Buttons (<button> elements)',
+        count: buttonsRemoved.length,
+        fullList: buttonsRemoved,
+        coordinates: buttonsRemoved.filter(b => typeof b === 'object' && b.bounds).map(b => ({ url1: b.bounds }))
       });
     }
 
@@ -338,9 +602,12 @@ class UIComparisonEngine {
         type: 'Content',
         category: 'Text Added',
         severity: 'low',
-        detail: `${textAdded.length} new text elements`,
-        examples: textAdded.slice(0, 3).map(t => t.substring(0, 50)),
-        count: textAdded.length
+        detail: `${textAdded.length} new text element(s) found in URL 2`,
+        url1Value: 'Not present',
+        url2Value: textAdded.slice(0, 3).map(t => `"${t.substring(0, 100)}"`).join(', '),
+        location: 'Visible Text Content',
+        count: textAdded.length,
+        examples: textAdded.slice(0, 10)
       });
     }
 
@@ -349,9 +616,52 @@ class UIComparisonEngine {
         type: 'Content',
         category: 'Text Removed',
         severity: 'low',
-        detail: `${textRemoved.length} text elements removed`,
-        examples: textRemoved.slice(0, 3).map(t => t.substring(0, 50)),
-        count: textRemoved.length
+        detail: `${textRemoved.length} text element(s) missing in URL 2`,
+        url1Value: textRemoved.slice(0, 3).map(t => `"${t.substring(0, 100)}"`).join(', '),
+        url2Value: 'Not present',
+        location: 'Visible Text Content',
+        count: textRemoved.length,
+        examples: textRemoved.slice(0, 10)
+      });
+    }
+
+    // Compare currency amounts by context
+    if (data1.currencyAmounts && data2.currencyAmounts) {
+      const contextMap1 = {};
+      const contextMap2 = {};
+
+      // Group by context
+      data1.currencyAmounts.forEach(item => {
+        const key = item.context || item.amount;
+        contextMap1[key] = item;
+      });
+
+      data2.currencyAmounts.forEach(item => {
+        const key = item.context || item.amount;
+        contextMap2[key] = item;
+      });
+
+      // Find changed amounts (same context, different amount)
+      Object.keys(contextMap1).forEach(context => {
+        if (contextMap2[context]) {
+          const amt1 = contextMap1[context].amount;
+          const amt2 = contextMap2[context].amount;
+          if (amt1 !== amt2) {
+            differences.push({
+              type: 'Content',
+              category: 'Currency Amount Changed',
+              severity: 'high',
+              detail: `Amount changed in context: "${context}"`,
+              url1Value: amt1,
+              url2Value: amt2,
+              location: `Currency Display`,
+              coordinates: [
+                { url1: contextMap1[context].bounds },
+                { url2: contextMap2[context].bounds }
+              ]
+            });
+          }
+        }
       });
     }
 
@@ -368,41 +678,658 @@ class UIComparisonEngine {
     return differences;
   }
 
-  async createHighlightedScreenshots(screenshotPath1, screenshotPath2, differences, timestamp) {
-    try {
-      console.log('  🎨 Creating highlighted difference screenshots...');
+  // Enhanced approach: Compare ALL interactive DOM elements (text, icons, buttons, images)
+  async comparePageElements(page1, page2) {
+    console.log('  🔍 Extracting and comparing ALL page elements (text, buttons, icons, images)...');
 
-      // Read both images
-      const img1Buffer = readFileSync(screenshotPath1);
-      const img2Buffer = readFileSync(screenshotPath2);
+    // Extract all visible elements including buttons, links, icons, images
+    const extractionFunction = () => {
+      const elements = [];
+
+      const isVisible = (el) => {
+        const style = window.getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.display !== 'none' &&
+               style.visibility !== 'hidden' &&
+               style.opacity !== '0' &&
+               rect.width > 0 &&
+               rect.height > 0;
+      };
+
+      const getElementSignature = (el) => {
+        const text = (el.innerText || el.textContent || '').trim();
+        const ariaLabel = el.getAttribute('aria-label') || '';
+        const title = el.getAttribute('title') || '';
+        const alt = el.getAttribute('alt') || '';
+        const role = el.getAttribute('role') || '';
+        const tagName = el.tagName.toLowerCase();
+        const type = el.getAttribute('type') || '';
+
+        return {
+          text: text.substring(0, 200),
+          ariaLabel,
+          title,
+          alt,
+          role,
+          tagName,
+          type,
+          hasIcon: el.querySelector('svg, i[class*="icon"], span[class*="icon"]') !== null,
+          className: el.className || ''
+        };
+      };
+
+      // Extract interactive elements (buttons, links, inputs)
+      const interactiveSelectors = [
+        'button',
+        'a[href]',
+        'input',
+        '[role="button"]',
+        '[role="link"]',
+        '[onclick]',
+        'img',
+        'svg',
+        '[class*="icon"]',
+        '[class*="btn"]'
+      ];
+
+      interactiveSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+          if (isVisible(el) && el.getBoundingClientRect().left < window.innerWidth - 100) {
+            const rect = el.getBoundingClientRect();
+            const signature = getElementSignature(el);
+
+            elements.push({
+              ...signature,
+              x: Math.round(rect.left + window.scrollX),
+              y: Math.round(rect.top + window.scrollY),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height)
+            });
+          }
+        });
+      });
+
+      // Also extract all text-bearing elements
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+      let node;
+      while (node = walker.nextNode()) {
+        if (node.children.length === 0 && isVisible(node)) {
+          const text = (node.innerText || node.textContent || '').trim();
+          if (text.length > 0 && text.length < 200) {
+            const rect = node.getBoundingClientRect();
+            if (rect.left < window.innerWidth - 100) {
+              const signature = getElementSignature(node);
+              elements.push({
+                ...signature,
+                x: Math.round(rect.left + window.scrollX),
+                y: Math.round(rect.top + window.scrollY),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height)
+              });
+            }
+          }
+        }
+      }
+
+      // Deduplicate by position + content
+      const unique = [];
+      const seen = new Set();
+      elements.forEach(el => {
+        const key = `${el.x}_${el.y}_${el.text}_${el.ariaLabel}_${el.tagName}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push(el);
+        }
+      });
+
+      return unique;
+    };
+
+    const [elements1, elements2] = await Promise.all([
+      page1.evaluate(extractionFunction),
+      page2.evaluate(extractionFunction)
+    ]);
+
+    const differences = [];
+
+    console.log(`  📊 Extracted ${elements1.length} elements from URL 1, ${elements2.length} from URL 2`);
+
+    // Normalize text for comparison (remove extra whitespace, lowercase)
+    const normalizeText = (text) => {
+      if (!text) return '';
+      return text.toLowerCase().replace(/\s+/g, ' ').trim();
+    };
+
+    // Calculate similarity score between two elements (0-1, 1 = identical)
+    const calculateSimilarity = (el1, el2) => {
+      let score = 0;
+      let factors = 0;
+
+      // Tag name match (most important)
+      if (el1.tagName === el2.tagName) {
+        score += 3;
+        factors += 3;
+      } else {
+        factors += 3;
+      }
+
+      // Text content similarity
+      const text1 = normalizeText(el1.text);
+      const text2 = normalizeText(el2.text);
+      if (text1 && text2) {
+        if (text1 === text2) score += 2;
+        else if (text1.includes(text2) || text2.includes(text1)) score += 1;
+        factors += 2;
+      }
+
+      // Aria-label match
+      const aria1 = normalizeText(el1.ariaLabel);
+      const aria2 = normalizeText(el2.ariaLabel);
+      if (aria1 && aria2 && aria1 === aria2) {
+        score += 1;
+        factors += 1;
+      }
+
+      // Position proximity (within 20px = similar)
+      const positionSimilarity = Math.max(0, 1 - (Math.abs(el1.x - el2.x) + Math.abs(el1.y - el2.y)) / 100);
+      score += positionSimilarity;
+      factors += 1;
+
+      return factors > 0 ? score / factors : 0;
+    };
+
+    // Match elements using intelligent similarity matching
+    const matchedPage1 = new Set();
+    const matchedPage2 = new Set();
+    const matches = [];
+
+    // For each element in page1, find best match in page2
+    elements1.forEach(el1 => {
+      let bestMatch = null;
+      let bestScore = 0.6; // Minimum similarity threshold
+
+      elements2.forEach(el2 => {
+        if (matchedPage2.has(el2)) return; // Already matched
+
+        // Only compare nearby elements (within 200px) for performance
+        if (Math.abs(el2.x - el1.x) > 200 || Math.abs(el2.y - el1.y) > 200) return;
+
+        const similarity = calculateSimilarity(el1, el2);
+        if (similarity > bestScore) {
+          bestScore = similarity;
+          bestMatch = el2;
+        }
+      });
+
+      if (bestMatch) {
+        matchedPage1.add(el1);
+        matchedPage2.add(bestMatch);
+        matches.push({ el1, el2: bestMatch, similarity: bestScore });
+      }
+    });
+
+    console.log(`  🔗 Matched ${matches.length} elements between pages`);
+
+    // Check matched elements for meaningful changes
+    matches.forEach(({ el1, el2 }) => {
+      const text1 = normalizeText(el1.text);
+      const text2 = normalizeText(el2.text);
+
+      // Only flag if there's meaningful text change
+      if (text1 !== text2 && text1.length > 2 && text2.length > 2) {
+        // Check if it's currency (HIGH SEVERITY)
+        const currency1 = el1.text.match(/\$[\d,]+\.?\d*/);
+        const currency2 = el2.text.match(/\$[\d,]+\.?\d*/);
+
+        if (currency1 && currency2 && currency1[0] !== currency2[0]) {
+          differences.push({
+            type: 'Content',
+            category: 'Currency Amount Changed',
+            severity: 'high',
+            detail: `Amount changed from ${currency1[0]} to ${currency2[0]}`,
+            url1Value: el1.text,
+            url2Value: el2.text,
+            location: `${el1.tagName} at (${el1.x}, ${el1.y})`,
+            coordinates: [
+              { url1: { x: el1.x, y: el1.y, width: el1.width, height: el1.height } },
+              { url2: { x: el2.x, y: el2.y, width: el2.width, height: el2.height } }
+            ]
+          });
+        }
+        // Ignore minor text differences (whitespace, case) - too noisy
+      }
+    });
+
+    // Find truly added elements (major structural additions only)
+    const unmatchedPage2 = elements2.filter(el => !matchedPage2.has(el));
+
+    // Group by text/label to avoid duplicates
+    const addedGroups = new Map();
+    unmatchedPage2.forEach(el2 => {
+      const label = normalizeText(el2.text || el2.ariaLabel || el2.title || el2.alt);
+      if (label.length > 3) { // Ignore very short labels (likely noise)
+        if (!addedGroups.has(label)) {
+          addedGroups.set(label, []);
+        }
+        addedGroups.get(label).push(el2);
+      }
+    });
+
+    // Only report unique additions (first occurrence of each label)
+    addedGroups.forEach((elements, label) => {
+      const el2 = elements[0]; // Take first occurrence
+      differences.push({
+        type: 'Content',
+        category: `Content Added`,
+        severity: 'high',
+        detail: `New content: "${label.substring(0, 50)}"${elements.length > 1 ? ` (${elements.length} instances)` : ''}`,
+        url1Value: 'Not present',
+        url2Value: label.substring(0, 100),
+        location: `${el2.tagName} at (${el2.x}, ${el2.y})`,
+        coordinates: [
+          { url2: { x: el2.x, y: el2.y, width: el2.width, height: el2.height } }
+        ]
+      });
+    });
+
+    // Find truly removed elements (major structural removals only)
+    const unmatchedPage1 = elements1.filter(el => !matchedPage1.has(el));
+
+    const removedGroups = new Map();
+    unmatchedPage1.forEach(el1 => {
+      const label = normalizeText(el1.text || el1.ariaLabel || el1.title || el1.alt);
+      if (label.length > 3) {
+        if (!removedGroups.has(label)) {
+          removedGroups.set(label, []);
+        }
+        removedGroups.get(label).push(el1);
+      }
+    });
+
+    removedGroups.forEach((elements, label) => {
+      const el1 = elements[0];
+      differences.push({
+        type: 'Content',
+        category: `Content Removed`,
+        severity: 'high',
+        detail: `Removed content: "${label.substring(0, 50)}"${elements.length > 1 ? ` (${elements.length} instances)` : ''}`,
+        url1Value: label.substring(0, 100),
+        url2Value: 'Not present',
+        location: `${el1.tagName} at (${el1.x}, ${el1.y})`,
+        coordinates: [
+          { url1: { x: el1.x, y: el1.y, width: el1.width, height: el1.height } }
+        ]
+      });
+    });
+
+    console.log(`  ✅ Found ${differences.length} meaningful differences (filtered noise)`);
+    return differences;
+  }
+
+  async createSimpleHighlightedScreenshots(screenshotPath1, screenshotPath2, differences, timestamp) {
+    const annotatedPath1 = join('screenshots', `${timestamp}_url1_highlighted.png`);
+    const annotatedPath2 = join('screenshots', `${timestamp}_url2_highlighted.png`);
+
+    // URL 1 (PROD) - Keep clean, no boxes
+    const original1 = readFileSync(screenshotPath1);
+    writeFileSync(annotatedPath1, original1);
+
+    // URL 2 (PREVIEW) - Show all difference boxes
+    await this.createAnnotatedImage(screenshotPath2, annotatedPath2, differences, 'url2');
+
+    console.log('  ✅ URL 1 (Prod): Clean screenshot');
+    console.log('  ✅ URL 2 (Preview): Marked with difference boxes');
+
+    return {
+      highlighted: {
+        url1: annotatedPath1,
+        url2: annotatedPath2
+      }
+    };
+  }
+
+  // Cluster diff pixels into bounding box regions (Percy-style)
+  clusterDiffPixels(diffData, width, height) {
+    const regions = [];
+    const visited = new Set();
+
+    // Helper to check if pixel is different (magenta in diff)
+    const isDiffPixel = (x, y) => {
+      const idx = (y * width + x) * 4;
+      return diffData[idx] === 255 && diffData[idx + 1] === 0 && diffData[idx + 2] === 255;
+    };
+
+    // Flood fill to find connected regions
+    const floodFill = (startX, startY) => {
+      const stack = [[startX, startY]];
+      const pixels = [];
+      let minX = startX, maxX = startX, minY = startY, maxY = startY;
+
+      while (stack.length > 0) {
+        const [x, y] = stack.pop();
+        const key = `${x},${y}`;
+
+        if (visited.has(key) || x < 0 || y < 0 || x >= width || y >= height) continue;
+        if (!isDiffPixel(x, y)) continue;
+
+        visited.add(key);
+        pixels.push([x, y]);
+
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+
+        // Check 8 neighbors
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            if (dx === 0 && dy === 0) continue;
+            stack.push([x + dx, y + dy]);
+          }
+        }
+      }
+
+      return { pixels, bounds: { minX, maxX, minY, maxY } };
+    };
+
+    // Scan for diff pixels and cluster them
+    for (let y = 0; y < height; y += 5) { // Skip pixels for faster scan
+      for (let x = 0; x < width; x += 5) {
+        const key = `${x},${y}`;
+        if (!visited.has(key) && isDiffPixel(x, y)) {
+          const region = floodFill(x, y);
+          // Much higher threshold - ignore tiny regions
+          if (region.pixels.length >= 500) {
+            const padding = 20;
+            regions.push({
+              x: Math.max(0, region.bounds.minX - padding),
+              y: Math.max(0, region.bounds.minY - padding),
+              width: region.bounds.maxX - region.bounds.minX + padding * 2,
+              height: region.bounds.maxY - region.bounds.minY + padding * 2,
+              pixelCount: region.pixels.length
+            });
+          }
+        }
+      }
+    }
+
+    // Merge nearby regions (Percy-style grouping) - but don't over-merge!
+    const mergeDistance = 100; // Merge regions within 100px
+    const maxMergedSize = 500; // Don't merge if result would be > 500px in any dimension
+    const merged = [];
+
+    regions.sort((a, b) => a.y - b.y); // Sort by Y position
+
+    for (const region of regions) {
+      let wasMerged = false;
+      for (const existing of merged) {
+        // Calculate what the merged box would look like
+        const newMinX = Math.min(existing.x, region.x);
+        const newMinY = Math.min(existing.y, region.y);
+        const newMaxX = Math.max(existing.x + existing.width, region.x + region.width);
+        const newMaxY = Math.max(existing.y + existing.height, region.y + region.height);
+        const mergedWidth = newMaxX - newMinX;
+        const mergedHeight = newMaxY - newMinY;
+
+        // Don't merge if it would create a huge box
+        if (mergedWidth > maxMergedSize || mergedHeight > maxMergedSize) {
+          continue;
+        }
+
+        // Check if regions are close enough to merge
+        const xOverlap = Math.max(0, Math.min(existing.x + existing.width, region.x + region.width) - Math.max(existing.x, region.x));
+        const yOverlap = Math.max(0, Math.min(existing.y + existing.height, region.y + region.height) - Math.max(existing.y, region.y));
+        const xDistance = Math.abs((existing.x + existing.width/2) - (region.x + region.width/2));
+        const yDistance = Math.abs((existing.y + existing.height/2) - (region.y + region.height/2));
+
+        // Only merge if they directly overlap OR are very close in BOTH dimensions
+        if (xOverlap > 0 && yOverlap > 0) {
+          // Direct overlap - merge
+          existing.x = newMinX;
+          existing.y = newMinY;
+          existing.width = mergedWidth;
+          existing.height = mergedHeight;
+          existing.pixelCount += region.pixelCount;
+          wasMerged = true;
+          break;
+        } else if (xDistance < mergeDistance && yDistance < mergeDistance) {
+          // Close in both directions - merge
+          existing.x = newMinX;
+          existing.y = newMinY;
+          existing.width = mergedWidth;
+          existing.height = mergedHeight;
+          existing.pixelCount += region.pixelCount;
+          wasMerged = true;
+          break;
+        }
+      }
+
+      if (!wasMerged) {
+        merged.push({...region});
+      }
+    }
+
+    console.log(`  📦 Found ${merged.length} meaningful difference regions (merged from ${regions.length} raw clusters)`);
+    return merged;
+  }
+
+  // Identify what changed in each region and get precise element bounds
+  async identifyRegionChanges(page1, page2, regions) {
+    const differences = [];
+
+    for (let i = 0; i < regions.length; i++) {
+      const region = regions[i];
+      console.log(`  🔍 Analyzing region ${i + 1}/${regions.length} at (${region.x}, ${region.y})...`);
+
+      try {
+        // Find all leaf elements within this region on both pages
+        const [elements1, elements2] = await Promise.all([
+          page1.evaluate((bounds) => {
+            const found = [];
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+            let node;
+
+            while (node = walker.nextNode()) {
+              // Check if element is within region bounds
+              const rect = node.getBoundingClientRect();
+              if (rect.left >= bounds.x && rect.left <= bounds.x + bounds.width &&
+                  rect.top >= bounds.y && rect.top <= bounds.y + bounds.height) {
+
+                // Only include leaf elements with text
+                if (node.children.length === 0) {
+                  const text = (node.innerText || node.textContent || '').trim();
+                  if (text.length > 0 && text.length < 200) {
+                    found.push({
+                      text,
+                      bounds: {
+                        x: Math.round(rect.left + window.scrollX),
+                        y: Math.round(rect.top + window.scrollY),
+                        width: Math.round(rect.width),
+                        height: Math.round(rect.height)
+                      }
+                    });
+                  }
+                }
+              }
+            }
+            return found;
+          }, region),
+          page2.evaluate((bounds) => {
+            const found = [];
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+            let node;
+
+            while (node = walker.nextNode()) {
+              const rect = node.getBoundingClientRect();
+              if (rect.left >= bounds.x && rect.left <= bounds.x + bounds.width &&
+                  rect.top >= bounds.y && rect.top <= bounds.y + bounds.height) {
+
+                if (node.children.length === 0) {
+                  const text = (node.innerText || node.textContent || '').trim();
+                  if (text.length > 0 && text.length < 200) {
+                    found.push({
+                      text,
+                      bounds: {
+                        x: Math.round(rect.left + window.scrollX),
+                        y: Math.round(rect.top + window.scrollY),
+                        width: Math.round(rect.width),
+                        height: Math.round(rect.height)
+                      }
+                    });
+                  }
+                }
+              }
+            }
+            return found;
+          }, region)
+        ]);
+
+        // Compare elements between pages
+        const text1Set = new Set(elements1.map(e => e.text));
+        const text2Set = new Set(elements2.map(e => e.text));
+
+        // Find changed, added, and removed elements
+        const changed = [];
+
+        // Check for currency changes (same position, different amount)
+        elements1.forEach(el1 => {
+          const currency1 = el1.text.match(/\$[\d,]+\.?\d*/);
+          if (currency1) {
+            // Find element at similar position on page2
+            const el2 = elements2.find(e =>
+              Math.abs(e.bounds.x - el1.bounds.x) < 50 &&
+              Math.abs(e.bounds.y - el1.bounds.y) < 50
+            );
+
+            if (el2) {
+              const currency2 = el2.text.match(/\$[\d,]+\.?\d*/);
+              if (currency2 && currency1[0] !== currency2[0]) {
+                changed.push({
+                  type: 'Content',
+                  category: 'Currency Amount Changed',
+                  severity: 'high',
+                  detail: `Amount changed from ${currency1[0]} to ${currency2[0]}`,
+                  url1Value: el1.text,
+                  url2Value: el2.text,
+                  location: `Position (${el1.bounds.x}, ${el1.bounds.y})`,
+                  coordinates: [
+                    { url1: el1.bounds },
+                    { url2: el2.bounds }
+                  ]
+                });
+              }
+            }
+          }
+        });
+
+        // Check for added content
+        elements2.forEach(el2 => {
+          if (!text1Set.has(el2.text)) {
+            changed.push({
+              type: 'Content',
+              category: 'Content Added',
+              severity: 'high',
+              detail: `New content: "${el2.text.substring(0, 50)}"`,
+              url1Value: 'Not present',
+              url2Value: el2.text,
+              location: `Position (${el2.bounds.x}, ${el2.bounds.y})`,
+              coordinates: [
+                { url2: el2.bounds }
+              ]
+            });
+          }
+        });
+
+        // Check for removed content
+        elements1.forEach(el1 => {
+          if (!text2Set.has(el1.text)) {
+            changed.push({
+              type: 'Content',
+              category: 'Content Removed',
+              severity: 'high',
+              detail: `Removed content: "${el1.text.substring(0, 50)}"`,
+              url1Value: el1.text,
+              url2Value: 'Not present',
+              location: `Position (${el1.bounds.x}, ${el1.bounds.y})`,
+              coordinates: [
+                { url1: el1.bounds }
+              ]
+            });
+          }
+        });
+
+        differences.push(...changed);
+
+      } catch (error) {
+        console.error(`  ⚠️  Error analyzing region ${i + 1}:`, error.message);
+      }
+    }
+
+    console.log(`  ✅ Found ${differences.length} meaningful content differences`);
+    return differences;
+  }
+
+  async createHighlightedScreenshots(screenshotPath1, screenshotPath2, page1, page2, timestamp) {
+    try {
+      console.log('  🎨 Analyzing pixel-level differences...');
+
+      // Read both images and get metadata
+      const img1Metadata = await sharp(screenshotPath1).metadata();
+      const img2Metadata = await sharp(screenshotPath2).metadata();
+
+      // Determine target dimensions (use the larger dimensions)
+      const targetWidth = Math.max(img1Metadata.width, img2Metadata.width);
+      const targetHeight = Math.max(img1Metadata.height, img2Metadata.height);
+
+      console.log(`  📐 Resizing images to ${targetWidth}x${targetHeight}...`);
+
+      // Resize both images to the same dimensions with white background
+      const img1Buffer = await sharp(screenshotPath1)
+        .resize(targetWidth, targetHeight, {
+          fit: 'contain',
+          background: { r: 255, g: 255, b: 255, alpha: 1 }
+        })
+        .png()
+        .toBuffer();
+
+      const img2Buffer = await sharp(screenshotPath2)
+        .resize(targetWidth, targetHeight, {
+          fit: 'contain',
+          background: { r: 255, g: 255, b: 255, alpha: 1 }
+        })
+        .png()
+        .toBuffer();
 
       const img1 = PNG.sync.read(img1Buffer);
       const img2 = PNG.sync.read(img2Buffer);
 
-      // Ensure images are the same size
-      const width = Math.min(img1.width, img2.width);
-      const height = Math.min(img1.height, img2.height);
-
       // Create diff image
-      const diff = new PNG({ width, height });
+      const diff = new PNG({ width: targetWidth, height: targetHeight });
 
-      // Perform pixel-level comparison
+      // Perform pixel-level comparison with MORE SENSITIVE settings
       const numDiffPixels = pixelmatch(
         img1.data,
         img2.data,
         diff.data,
-        width,
-        height,
+        targetWidth,
+        targetHeight,
         {
-          threshold: 0.1,
-          includeAA: true,
-          alpha: 0.5
+          threshold: 0.1,        // Lower threshold = more sensitive
+          includeAA: false,      // Exclude anti-aliasing differences
+          alpha: 0.2,            // More transparent diff overlay
+          diffColor: [255, 0, 255]  // Magenta for clustering
         }
       );
 
       console.log(`  📊 Found ${numDiffPixels} different pixels`);
 
-      // Create annotated versions with colored boxes based on severity
+      // Cluster diff pixels into regions
+      const regions = this.clusterDiffPixels(diff.data, targetWidth, targetHeight);
+
+      // Identify what changed in each region
+      const differences = await this.identifyRegionChanges(page1, page2, regions);
+
+      // Create annotated versions with colored boxes
       const annotatedPath1 = join('screenshots', `${timestamp}_url1_highlighted.png`);
       const annotatedPath2 = join('screenshots', `${timestamp}_url2_highlighted.png`);
       const diffPath = join('screenshots', `${timestamp}_diff.png`);
@@ -420,7 +1347,8 @@ class UIComparisonEngine {
           url2: annotatedPath2,
           diff: diffPath
         },
-        pixelDifferences: numDiffPixels
+        pixelDifferences: numDiffPixels,
+        differences
       };
 
     } catch (error) {
@@ -440,74 +1368,66 @@ class UIComparisonEngine {
         return;
       }
 
-      // Create SVG overlay with subtle side indicators
+      // Create SVG overlay with bounding boxes and badges
       const severityColors = {
         high: { color: '#ff453a', label: 'HIGH' },
         medium: { color: '#ff9f0a', label: 'MED' },
         low: { color: '#0a84ff', label: 'LOW' }
       };
 
-      // Create a compact legend/badge on the side
-      const badges = [];
-      let yPosition = 20;
-      const badgeHeight = 40;
-      const badgeWidth = 120;
-      const rightMargin = 20;
+      // Draw bounding boxes around differences (NO SIDEBAR BADGES)
+      const boundingBoxes = [];
 
-      differences.forEach((diff) => {
+      differences.forEach((diff, index) => {
         const colorInfo = severityColors[diff.severity] || severityColors.low;
 
-        badges.push(`
-          <g>
-            <!-- Badge background -->
-            <rect
-              x="${metadata.width - badgeWidth - rightMargin}"
-              y="${yPosition}"
-              width="${badgeWidth}"
-              height="${badgeHeight}"
-              fill="rgba(0, 0, 0, 0.75)"
-              stroke="${colorInfo.color}"
-              stroke-width="2"
-              rx="8"
-            />
-            <!-- Severity indicator -->
-            <rect
-              x="${metadata.width - badgeWidth - rightMargin + 5}"
-              y="${yPosition + 5}"
-              width="4"
-              height="${badgeHeight - 10}"
-              fill="${colorInfo.color}"
-              rx="2"
-            />
-            <!-- Text -->
-            <text
-              x="${metadata.width - badgeWidth - rightMargin + 15}"
-              y="${yPosition + 18}"
-              font-family="Arial, sans-serif"
-              font-size="11"
-              font-weight="bold"
-              fill="${colorInfo.color}"
-            >
-              ${colorInfo.label}
-            </text>
-            <text
-              x="${metadata.width - badgeWidth - rightMargin + 15}"
-              y="${yPosition + 32}"
-              font-family="Arial, sans-serif"
-              font-size="10"
-              fill="white"
-            >
-              ${diff.category.substring(0, 15)}
-            </text>
-          </g>
-        `);
-
-        yPosition += badgeHeight + 10;
+        // Draw bounding boxes if coordinates are available
+        if (diff.coordinates && Array.isArray(diff.coordinates)) {
+          diff.coordinates.forEach(coord => {
+            const bounds = coord[urlType]; // Get bounds for current URL (url1 or url2)
+            if (bounds) {
+              boundingBoxes.push(`
+                <rect
+                  x="${bounds.x}"
+                  y="${bounds.y}"
+                  width="${bounds.width}"
+                  height="${bounds.height}"
+                  fill="none"
+                  stroke="${colorInfo.color}"
+                  stroke-width="3"
+                  stroke-opacity="0.9"
+                  rx="4"
+                />
+                <rect
+                  x="${bounds.x}"
+                  y="${bounds.y}"
+                  width="${bounds.width}"
+                  height="${bounds.height}"
+                  fill="${colorInfo.color}"
+                  fill-opacity="0.15"
+                  rx="4"
+                />
+                <!-- Label badge inside box -->
+                <text
+                  x="${bounds.x + 5}"
+                  y="${bounds.y + 20}"
+                  font-family="Arial, sans-serif"
+                  font-size="12"
+                  font-weight="bold"
+                  fill="${colorInfo.color}"
+                  style="text-shadow: 1px 1px 3px rgba(0,0,0,0.8);"
+                >
+                  ${colorInfo.label} ${index + 1}
+                </text>
+              `);
+            }
+          });
+        }
       });
 
       const svgOverlay = `
         <svg width="${metadata.width}" height="${metadata.height}">
-          ${badges.join('\n')}
+          ${boundingBoxes.join('\n')}
         </svg>
       `;
 
@@ -528,10 +1448,12 @@ class UIComparisonEngine {
   }
 
   async run() {
+    this.emit('step', { step: 1, detail: 'Launching browser...' });
     const browser = await chromium.launch({ headless: true });
     const timestamp = Date.now();
 
     try {
+      this.emit('step', { step: 1, detail: 'Opening both URLs in browser...' });
       const context1 = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
       const context2 = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
 
@@ -539,33 +1461,40 @@ class UIComparisonEngine {
       const page2 = await context2.newPage();
 
       // Capture data and screenshots
+      this.emit('step', { step: 1, detail: 'Navigating to URLs and waiting for load...' });
       const [data1, data2] = await Promise.all([
         this.capturePageData(page1, this.config.url1),
         this.capturePageData(page2, this.config.url2)
       ]);
 
+      this.emit('step', { step: 4, detail: '📸 Capturing page 1 screenshot...' });
       const screenshotPath1 = join('screenshots', `${timestamp}_url1.png`);
       const screenshotPath2 = join('screenshots', `${timestamp}_url2.png`);
 
-      await Promise.all([
-        page1.screenshot({ path: screenshotPath1, fullPage: true }),
-        page2.screenshot({ path: screenshotPath2, fullPage: true })
-      ]);
+      await page1.screenshot({ path: screenshotPath1, fullPage: true });
 
-      await context1.close();
-      await context2.close();
-      await browser.close();
+      this.emit('step', { step: 4, detail: '📸 Capturing page 2 screenshot...' });
+      await page2.screenshot({ path: screenshotPath2, fullPage: true });
 
-      // Compare
-      const differences = this.compareData(data1, data2);
+      this.emit('step', { step: 5, detail: '🔬 Analyzing page elements...' });
+      // SIMPLE APPROACH: Direct DOM comparison
+      const differences = await this.comparePageElements(page1, page2);
 
-      // Create highlighted screenshots with visual difference markers
-      const highlightedResults = await this.createHighlightedScreenshots(
+      this.emit('step', { step: 5, detail: `🎯 Found ${differences.length} differences` });
+      await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause to show the count
+
+      this.emit('step', { step: 6, detail: `✏️ Drawing ${differences.length} difference boxes...` });
+      // Create highlighted screenshots with bounding boxes
+      const highlightedResults = await this.createSimpleHighlightedScreenshots(
         screenshotPath1,
         screenshotPath2,
         differences,
         timestamp
       );
+
+      await context1.close();
+      await context2.close();
+      await browser.close();
 
       return {
         timestamp,
@@ -612,31 +1541,82 @@ class UIComparisonEngine {
 }
 
 // API Routes
+// Store socket connections for real-time updates
+let activeSocket = null;
+
+io.on('connection', (socket) => {
+  console.log('✅ Client connected for real-time updates');
+  activeSocket = socket;
+
+  socket.on('disconnect', () => {
+    console.log('❌ Client disconnected');
+    if (activeSocket === socket) {
+      activeSocket = null;
+    }
+  });
+});
+
 app.post('/api/compare', async (req, res) => {
   try {
-    const { url1, url2, description } = req.body;
+    const { url1, url2, description, clickAction } = req.body;
 
     if (!url1 || !url2) {
       return res.status(400).json({ error: 'Both URLs are required' });
     }
 
+    // Check if URLs are identical
+    if (url1.trim() === url2.trim()) {
+      console.log(`\n⚠️  WARNING: Both URLs are identical - no comparison needed`);
+      return res.status(400).json({
+        error: 'Both URLs are identical. Please provide two different URLs to compare.',
+        identical: true
+      });
+    }
+
     console.log(`\n🔍 Starting comparison: ${url1} vs ${url2}`);
 
-    const engine = new UIComparisonEngine({ url1, url2, description });
-    const result = await engine.run();
+    // Parse multiple click actions separated by commas
+    const clickActions = clickAction
+      ? clickAction.split(',').map(action => action.trim()).filter(Boolean)
+      : [null];
 
-    // Save result
-    const resultPath = join('results', `${result.timestamp}.json`);
-    writeFileSync(resultPath, JSON.stringify(result, null, 2));
+    if (clickActions.length > 1) {
+      console.log(`  🖱️  Multiple click actions detected: ${clickActions.join(', ')}`);
+    } else if (clickActions[0]) {
+      console.log(`  🖱️  Click action: "${clickActions[0]}"`);
+    }
 
-    console.log(`✅ Comparison completed: ${result.differences.length} differences found`);
+    // Run comparison for each click action
+    const results = [];
+    for (const action of clickActions) {
+      console.log(action ? `\n  📍 Comparing with "${action}" clicked...` : '\n  📍 Comparing default view...');
+
+      const engine = new UIComparisonEngine({ url1, url2, description, clickAction: action }, activeSocket);
+      const result = await engine.run();
+
+      results.push({
+        ...result,
+        clickedButton: action || 'Default View'
+      });
+    }
+
+    // Save combined results
+    const timestamp = Date.now();
+    const combinedResult = {
+      timestamp,
+      config: { url1, url2, description, clickActions: clickActions },
+      comparisons: results,
+      totalComparisons: results.length
+    };
+
+    const resultPath = join('results', `${timestamp}.json`);
+    writeFileSync(resultPath, JSON.stringify(combinedResult, null, 2));
+
+    console.log(`✅ All comparisons completed: ${results.length} states compared`);
 
     res.json({
       success: true,
-      result: {
-        ...result,
-        resultId: result.timestamp
-      }
+      result: combinedResult
     });
 
   } catch (error) {
@@ -685,11 +1665,12 @@ app.get('/api/results/:id', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║                                                            ║
 ║     🤖 UI Comparison Web App - Running                    ║
+║     ⚡ Real-time Progress Updates Enabled                  ║
 ║                                                            ║
 ║     📍 Server: http://localhost:${PORT}                        ║
 ║     📊 API: http://localhost:${PORT}/api/compare               ║
