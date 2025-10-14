@@ -7,8 +7,7 @@
   "scripts": {
     "compare": "node webdiff.js",
     "server": "node server.js",
-    "start": "node server.js",
-    "postinstall": "npx playwright install --with-deps chromium"
+    "start": "node server.js"
   },
   "dependencies": {
     "chalk": "^5.3.0",
