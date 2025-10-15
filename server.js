@@ -141,6 +141,24 @@ class UIComparisonEngine {
       console.log('  ℹ️  No popup detected');
     } else {
       console.log(`  ✅ Total popups closed: ${totalPopupsClosed}`);
+
+      // FIX: Check if closing popup caused a redirect
+      await page.waitForTimeout(1000);
+      const currentUrl = page.url();
+
+      if (currentUrl !== url && !currentUrl.startsWith(url)) {
+        console.log(`  ⚠️  Popup closing caused redirect! Expected: ${url}, Got: ${currentUrl}`);
+        console.log(`  🔄 Navigating back to correct URL...`);
+
+        // Navigate back to the original URL
+        try {
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          console.log(`  ✅ Successfully navigated back to ${url}`);
+          await page.waitForTimeout(2000); // Wait for page to stabilize
+        } catch (error) {
+          console.log(`  ❌ Failed to navigate back: ${error.message}`);
+        }
+      }
     }
 
     return totalPopupsClosed > 0;
