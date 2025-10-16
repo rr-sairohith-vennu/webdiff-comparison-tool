@@ -1,0 +1,27 @@
+{
+  "name": "percy-visual-testing",
+  "version": "1.0.0",
+  "description": "Percy API integration for automated visual regression testing with multi-state support",
+  "type": "module",
+  "main": "percy-test.js",
+  "scripts": {
+    "test": "npx percy exec -- node percy-test.js",
+    "start": "npx percy exec -- node percy-test.js"
+  },
+  "keywords": [
+    "percy",
+    "visual-testing",
+    "screenshot",
+    "automation",
+    "playwright"
+  ],
+  "author": "Sai Rohith Vennu",
+  "license": "MIT",
+  "dependencies": {
+    "@percy/cli": "^1.29.3",
+    "@percy/playwright": "^1.0.6",
+    "playwright": "^1.56.0",
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.7"
+  }
+}

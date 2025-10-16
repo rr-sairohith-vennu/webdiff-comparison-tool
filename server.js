@@ -737,6 +737,114 @@ class UIComparisonEngine {
   async comparePageElements(page1, page2) {
     console.log('  🔍 Extracting and comparing ALL page elements (text, buttons, icons, images)...');
 
+    // FIRST: Check if this is a simple text/JSON page (like version.htm)
+    const [result1, result2] = await Promise.all([
+      page1.evaluate(() => {
+        const pre = document.querySelector('pre');
+        if (pre) {
+          return { hasPre: true, text: pre.textContent };
+        }
+        return { hasPre: false, text: '' };
+      }),
+      page2.evaluate(() => {
+        const pre = document.querySelector('pre');
+        if (pre) {
+          return { hasPre: true, text: pre.textContent };
+        }
+        return { hasPre: false, text: '' };
+      })
+    ]);
+
+    if (result1.hasPre && result2.hasPre && result1.text !== result2.text) {
+      console.log('  📄 Detected JSON/text page with different content - using smart JSON comparison');
+
+      const differences = [];
+
+      // Try to parse as JSON first
+      try {
+        const json1 = JSON.parse(result1.text);
+        const json2 = JSON.parse(result2.text);
+
+        // Recursively compare JSON objects
+        const compareJSON = (obj1, obj2, path = '') => {
+          const allKeys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})]);
+
+          allKeys.forEach(key => {
+            const val1 = obj1?.[key];
+            const val2 = obj2?.[key];
+            const currentPath = path ? `${path}.${key}` : key;
+
+            if (val1 === undefined && val2 !== undefined) {
+              differences.push({
+                type: 'Content',
+                category: 'Field Added',
+                severity: 'high',
+                detail: `"${key}" added`,
+                url1Value: '(not present)',
+                url2Value: JSON.stringify(val2, null, 2),
+                location: currentPath
+              });
+            } else if (val1 !== undefined && val2 === undefined) {
+              differences.push({
+                type: 'Content',
+                category: 'Field Removed',
+                severity: 'high',
+                detail: `"${key}" removed`,
+                url1Value: JSON.stringify(val1, null, 2),
+                url2Value: '(not present)',
+                location: currentPath
+              });
+            } else if (typeof val1 === 'object' && typeof val2 === 'object' && val1 !== null && val2 !== null) {
+              // Recursively compare nested objects
+              compareJSON(val1, val2, currentPath);
+            } else if (val1 !== val2) {
+              differences.push({
+                type: 'Content',
+                category: `${key} Changed`,
+                severity: 'high',
+                detail: `"${key}" changed`,
+                url1Value: String(val1),
+                url2Value: String(val2),
+                location: currentPath
+              });
+            }
+          });
+        };
+
+        compareJSON(json1, json2);
+        console.log(`  📊 Found ${differences.length} field differences in JSON page`);
+        return differences;
+
+      } catch (e) {
+        // Not valid JSON, fall back to line-by-line comparison
+        console.log('  📄 Not valid JSON, using line-by-line text comparison');
+
+        const lines1 = result1.text.trim().split('\n');
+        const lines2 = result2.text.trim().split('\n');
+        const maxLines = Math.max(lines1.length, lines2.length);
+
+        for (let i = 0; i < maxLines; i++) {
+          const line1 = (lines1[i] || '').trim();
+          const line2 = (lines2[i] || '').trim();
+
+          if (line1 !== line2) {
+            differences.push({
+              type: 'Content',
+              category: 'Text Line Changed',
+              severity: 'high',
+              detail: `Line ${i + 1} differs`,
+              url1Value: line1 || '(empty)',
+              url2Value: line2 || '(empty)',
+              location: `Line ${i + 1}`
+            });
+          }
+        }
+
+        console.log(`  📊 Found ${differences.length} line differences in text page`);
+        return differences;
+      }
+    }
+
     // Extract all visible elements including buttons, links, icons, images
     const extractionFunction = () => {
       const elements = [];
@@ -1172,6 +1280,84 @@ class UIComparisonEngine {
   async identifyRegionChanges(page1, page2, regions) {
     const differences = [];
 
+    // First, check if this is a simple text/JSON page (like version.htm)
+    const [result1, result2] = await Promise.all([
+      page1.evaluate(() => {
+        const pre = document.querySelector('pre');
+        const body = document.body;
+        const bodyChildCount = body.children.length;
+        // Check if page is just a PRE tag or mostly text
+        // Also check if pre contains most of the text content
+        if (pre) {
+          const preTextLength = pre.textContent.length;
+          const bodyTextLength = body.textContent.length;
+          const preHasMostText = preTextLength > (bodyTextLength * 0.8);
+          return { isSimple: preHasMostText || bodyChildCount <= 5, bodyChildCount, preHasMostText };
+        }
+        return { isSimple: false, bodyChildCount, preHasMostText: false };
+      }),
+      page2.evaluate(() => {
+        const pre = document.querySelector('pre');
+        const body = document.body;
+        const bodyChildCount = body.children.length;
+        if (pre) {
+          const preTextLength = pre.textContent.length;
+          const bodyTextLength = body.textContent.length;
+          const preHasMostText = preTextLength > (bodyTextLength * 0.8);
+          return { isSimple: preHasMostText || bodyChildCount <= 5, bodyChildCount, preHasMostText };
+        }
+        return { isSimple: false, bodyChildCount, preHasMostText: false };
+      })
+    ]);
+
+    console.log(`  🔍 JSON page detection: URL1 children=${result1.bodyChildCount}, hasMostText=${result1.preHasMostText}, isSimple=${result1.isSimple}`);
+    console.log(`  🔍 JSON page detection: URL2 children=${result2.bodyChildCount}, hasMostText=${result2.preHasMostText}, isSimple=${result2.isSimple}`);
+
+    if (result1.isSimple && result2.isSimple) {
+      console.log('  📄 Detected simple text/JSON page - using line-by-line comparison');
+
+      // Get the text content from both pages
+      const [text1, text2] = await Promise.all([
+        page1.evaluate(() => {
+          const pre = document.querySelector('pre');
+          return pre ? pre.textContent : document.body.textContent;
+        }),
+        page2.evaluate(() => {
+          const pre = document.querySelector('pre');
+          return pre ? pre.textContent : document.body.textContent;
+        })
+      ]);
+
+      // Split into lines and compare
+      const lines1 = text1.trim().split('\n');
+      const lines2 = text2.trim().split('\n');
+      const maxLines = Math.max(lines1.length, lines2.length);
+
+      for (let i = 0; i < maxLines; i++) {
+        const line1 = (lines1[i] || '').trim();
+        const line2 = (lines2[i] || '').trim();
+
+        if (line1 !== line2) {
+          differences.push({
+            type: 'Content',
+            category: 'Text Content Changed',
+            severity: 'high',
+            detail: `Line ${i + 1} differs`,
+            url1Value: line1 || '(empty)',
+            url2Value: line2 || '(empty)',
+            location: `Line ${i + 1}`,
+            coordinates: [
+              { url1: { x: 10, y: 10 + (i * 20), width: 800, height: 18 } },
+              { url2: { x: 10, y: 10 + (i * 20), width: 800, height: 18 } }
+            ]
+          });
+        }
+      }
+
+      console.log(`  📊 Found ${differences.length} line differences in text page`);
+      return differences;
+    }
+
     for (let i = 0; i < regions.length; i++) {
       const region = regions[i];
       console.log(`  🔍 Analyzing region ${i + 1}/${regions.length} at (${region.x}, ${region.y})...`);
@@ -1183,17 +1369,53 @@ class UIComparisonEngine {
             const found = [];
             const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
             let node;
+            let totalNodes = 0;
+            let nodesInBounds = 0;
+            let nodesWithText = 0;
+            let nodesIncluded = 0;
 
             while (node = walker.nextNode()) {
+              totalNodes++;
               // Check if element is within region bounds
               const rect = node.getBoundingClientRect();
               if (rect.left >= bounds.x && rect.left <= bounds.x + bounds.width &&
                   rect.top >= bounds.y && rect.top <= bounds.y + bounds.height) {
+                nodesInBounds++;
 
-                // Only include leaf elements with text
-                if (node.children.length === 0) {
-                  const text = (node.innerText || node.textContent || '').trim();
-                  if (text.length > 0 && text.length < 200) {
+                // Get the text content
+                const text = (node.innerText || node.textContent || '').trim();
+
+                // Skip if no text or if this is just inherited text from children
+                if (text.length === 0) continue;
+                nodesWithText++;
+
+                // Check if this node has direct text content (not just from children)
+                const hasDirectText = node.childNodes && Array.from(node.childNodes).some(child =>
+                  child.nodeType === Node.TEXT_NODE && child.textContent.trim().length > 0
+                );
+
+                // Include if: (1) leaf node with text OR (2) has direct text content
+                const shouldInclude = node.children.length === 0 || hasDirectText || text.length > 200;
+
+                if (shouldInclude) {
+                  nodesIncluded++;
+                  // For long text (like JSON), split into lines and track each
+                  if (text.length > 200) {
+                    const lines = text.split('\n').filter(line => line.trim().length > 0);
+                    lines.forEach((line, lineIndex) => {
+                      if (line.trim().length > 0) {
+                        found.push({
+                          text: line.trim(),
+                          bounds: {
+                            x: Math.round(rect.left + window.scrollX),
+                            y: Math.round(rect.top + window.scrollY + (lineIndex * 20)),
+                            width: Math.round(rect.width),
+                            height: 20
+                          }
+                        });
+                      }
+                    });
+                  } else {
                     found.push({
                       text,
                       bounds: {
@@ -1207,21 +1429,59 @@ class UIComparisonEngine {
                 }
               }
             }
+            console.log(`DEBUG URL1: totalNodes=${totalNodes}, inBounds=${nodesInBounds}, withText=${nodesWithText}, included=${nodesIncluded}, found=${found.length}`);
             return found;
           }, region),
           page2.evaluate((bounds) => {
             const found = [];
             const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
             let node;
+            let totalNodes = 0;
+            let nodesInBounds = 0;
+            let nodesWithText = 0;
+            let nodesIncluded = 0;
 
             while (node = walker.nextNode()) {
+              totalNodes++;
               const rect = node.getBoundingClientRect();
               if (rect.left >= bounds.x && rect.left <= bounds.x + bounds.width &&
                   rect.top >= bounds.y && rect.top <= bounds.y + bounds.height) {
+                nodesInBounds++;
 
-                if (node.children.length === 0) {
-                  const text = (node.innerText || node.textContent || '').trim();
-                  if (text.length > 0 && text.length < 200) {
+                // Get the text content
+                const text = (node.innerText || node.textContent || '').trim();
+
+                // Skip if no text or if this is just inherited text from children
+                if (text.length === 0) continue;
+                nodesWithText++;
+
+                // Check if this node has direct text content (not just from children)
+                const hasDirectText = node.childNodes && Array.from(node.childNodes).some(child =>
+                  child.nodeType === Node.TEXT_NODE && child.textContent.trim().length > 0
+                );
+
+                // Include if: (1) leaf node with text OR (2) has direct text content
+                const shouldInclude = node.children.length === 0 || hasDirectText || text.length > 200;
+
+                if (shouldInclude) {
+                  nodesIncluded++;
+                  // For long text (like JSON), split into lines and track each
+                  if (text.length > 200) {
+                    const lines = text.split('\n').filter(line => line.trim().length > 0);
+                    lines.forEach((line, lineIndex) => {
+                      if (line.trim().length > 0) {
+                        found.push({
+                          text: line.trim(),
+                          bounds: {
+                            x: Math.round(rect.left + window.scrollX),
+                            y: Math.round(rect.top + window.scrollY + (lineIndex * 20)),
+                            width: Math.round(rect.width),
+                            height: 20
+                          }
+                        });
+                      }
+                    });
+                  } else {
                     found.push({
                       text,
                       bounds: {
@@ -1235,6 +1495,7 @@ class UIComparisonEngine {
                 }
               }
             }
+            console.log(`DEBUG URL2: totalNodes=${totalNodes}, inBounds=${nodesInBounds}, withText=${nodesWithText}, included=${nodesIncluded}, found=${found.length}`);
             return found;
           }, region)
         ]);
@@ -1410,6 +1671,85 @@ class UIComparisonEngine {
       );
 
       console.log(`  📊 Found ${numDiffPixels} different pixels`);
+
+      // If no pixel differences, check if this is a text/JSON page where text content differs
+      if (numDiffPixels === 0) {
+        console.log('  📄 No pixel differences found - checking if this is a text/JSON page...');
+
+        const [result1, result2] = await Promise.all([
+          page1.evaluate(() => {
+            const pre = document.querySelector('pre');
+            if (pre) {
+              return { hasPre: true, text: pre.textContent };
+            }
+            return { hasPre: false, text: '' };
+          }),
+          page2.evaluate(() => {
+            const pre = document.querySelector('pre');
+            if (pre) {
+              return { hasPre: true, text: pre.textContent };
+            }
+            return { hasPre: false, text: '' };
+          })
+        ]);
+
+        if (result1.hasPre && result2.hasPre && result1.text !== result2.text) {
+          console.log('  📄 Detected text/JSON page with content differences - using line-by-line comparison');
+
+          // Split into lines and compare
+          const lines1 = result1.text.trim().split('\n');
+          const lines2 = result2.text.trim().split('\n');
+          const maxLines = Math.max(lines1.length, lines2.length);
+          const textDifferences = [];
+
+          for (let i = 0; i < maxLines; i++) {
+            const line1 = (lines1[i] || '').trim();
+            const line2 = (lines2[i] || '').trim();
+
+            if (line1 !== line2) {
+              textDifferences.push({
+                type: 'Content',
+                category: 'Text Content Changed',
+                severity: 'high',
+                detail: `Line ${i + 1} differs`,
+                url1Value: line1 || '(empty)',
+                url2Value: line2 || '(empty)',
+                location: `Line ${i + 1}`,
+                coordinates: [
+                  { url1: { x: 10, y: 10 + (i * 20), width: 800, height: 18 } },
+                  { url2: { x: 10, y: 10 + (i * 20), width: 800, height: 18 } }
+                ]
+              });
+            }
+          }
+
+          console.log(`  📊 Found ${textDifferences.length} line differences in text page`);
+
+          if (textDifferences.length > 0) {
+            // Create annotated versions with colored boxes
+            const annotatedPath1 = join(SCREENSHOTS_DIR, `${timestamp}_url1_highlighted.png`);
+            const annotatedPath2 = join(SCREENSHOTS_DIR, `${timestamp}_url2_highlighted.png`);
+            const diffPath = join(SCREENSHOTS_DIR, `${timestamp}_diff.png`);
+
+            // Save the pixel diff (which is empty)
+            writeFileSync(diffPath, PNG.sync.write(diff));
+
+            // Create SVG overlays for both images with colored boxes
+            await this.createAnnotatedImage(screenshotPath1, annotatedPath1, textDifferences, 'url1');
+            await this.createAnnotatedImage(screenshotPath2, annotatedPath2, textDifferences, 'url2');
+
+            return {
+              timestamp,
+              differences: textDifferences,
+              screenshots: {
+                url1: `screenshots/${basename(annotatedPath1)}`,
+                url2: `screenshots/${basename(annotatedPath2)}`,
+                diff: `screenshots/${basename(diffPath)}`
+              }
+            };
+          }
+        }
+      }
 
       // Cluster diff pixels into regions
       const regions = this.clusterDiffPixels(diff.data, targetWidth, targetHeight);
