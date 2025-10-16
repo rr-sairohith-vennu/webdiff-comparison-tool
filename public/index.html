@@ -507,14 +507,14 @@
   <div class="container">
     <div class="header">
       <h1>🎯 Visual Comparison</h1>
-      <p>Compare Production vs Preview. Instantly.</p>
+      <p>Compare any two URLs. Instantly.</p>
     </div>
 
     <div class="card">
       <form id="comparisonForm">
         <div class="url-row">
           <div class="form-group">
-            <label for="url1">🔗 URL 1 (Production)</label>
+            <label for="url1">🔗 URL 1</label>
             <input
               type="text"
               id="url1"
@@ -525,7 +525,7 @@
           </div>
 
           <div class="form-group">
-            <label for="url2">🔗 URL 2 (Preview/Staging)</label>
+            <label for="url2">🔗 URL 2</label>
             <input
               type="text"
               id="url2"
@@ -774,11 +774,11 @@
 
           <div class="screenshots" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 48px;">
             <div class="screenshot-container">
-              <h3>URL 1 (Production)</h3>
+              <h3>URL 1</h3>
               <img src="/${comp.screenshots.highlighted?.url1 || comp.screenshots.url1}" alt="URL 1 Screenshot" />
             </div>
             <div class="screenshot-container">
-              <h3>URL 2 (Preview)</h3>
+              <h3>URL 2</h3>
               <img src="/${comp.screenshots.highlighted?.url2 || comp.screenshots.url2}" alt="URL 2 Screenshot" />
             </div>
           </div>
