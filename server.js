@@ -1005,8 +1005,8 @@ class UIComparisonEngine {
 
     return {
       highlighted: {
-        url1: annotatedPath1,
-        url2: annotatedPath2
+        url1: `screenshots/${annotatedPath1.split('/').pop()}`,
+        url2: `screenshots/${annotatedPath2.split('/').pop()}`
       }
     };
   }
@@ -1523,8 +1523,8 @@ class UIComparisonEngine {
         timestamp,
         config: this.config,
         screenshots: {
-          url1: screenshotPath1,
-          url2: screenshotPath2,
+          url1: `screenshots/${screenshotPath1.split('/').pop()}`,
+          url2: `screenshots/${screenshotPath2.split('/').pop()}`,
           ...(highlightedResults && { highlighted: highlightedResults.highlighted }),
           ...(highlightedResults && { diff: highlightedResults.highlighted.diff }),
           ...(highlightedResults && { pixelDifferences: highlightedResults.pixelDifferences })
