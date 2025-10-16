@@ -1246,19 +1246,26 @@ class UIComparisonEngine {
         // Find changed, added, and removed elements
         const changed = [];
 
-        // Check for currency changes (same position, different amount)
+        // Check for text content changes at same position
+        const matchedElements = new Set();
         elements1.forEach(el1 => {
-          const currency1 = el1.text.match(/\$[\d,]+\.?\d*/);
-          if (currency1) {
-            // Find element at similar position on page2
-            const el2 = elements2.find(e =>
-              Math.abs(e.bounds.x - el1.bounds.x) < 50 &&
-              Math.abs(e.bounds.y - el1.bounds.y) < 50
-            );
+          // Find element at similar position on page2
+          const el2 = elements2.find(e =>
+            Math.abs(e.bounds.x - el1.bounds.x) < 50 &&
+            Math.abs(e.bounds.y - el1.bounds.y) < 50 &&
+            !matchedElements.has(e)
+          );
 
-            if (el2) {
+          if (el2) {
+            matchedElements.add(el2);
+
+            // Check if text content is different
+            if (el1.text !== el2.text) {
+              // Special handling for currency
+              const currency1 = el1.text.match(/\$[\d,]+\.?\d*/);
               const currency2 = el2.text.match(/\$[\d,]+\.?\d*/);
-              if (currency2 && currency1[0] !== currency2[0]) {
+
+              if (currency1 && currency2) {
                 changed.push({
                   type: 'Content',
                   category: 'Currency Amount Changed',
@@ -1272,14 +1279,29 @@ class UIComparisonEngine {
                     { url2: el2.bounds }
                   ]
                 });
+              } else {
+                // General text content change
+                changed.push({
+                  type: 'Content',
+                  category: 'Text Content Changed',
+                  severity: 'high',
+                  detail: `Text changed at position (${el1.bounds.x}, ${el1.bounds.y})`,
+                  url1Value: el1.text,
+                  url2Value: el2.text,
+                  location: `Position (${el1.bounds.x}, ${el1.bounds.y})`,
+                  coordinates: [
+                    { url1: el1.bounds },
+                    { url2: el2.bounds }
+                  ]
+                });
               }
             }
           }
         });
 
-        // Check for added content
+        // Check for added content (not already matched by position)
         elements2.forEach(el2 => {
-          if (!text1Set.has(el2.text)) {
+          if (!matchedElements.has(el2) && !text1Set.has(el2.text)) {
             changed.push({
               type: 'Content',
               category: 'Content Added',
@@ -1295,9 +1317,20 @@ class UIComparisonEngine {
           }
         });
 
-        // Check for removed content
+        // Check for removed content (elements in page1 with no match in page2)
+        const matchedFromPage1 = new Set();
         elements1.forEach(el1 => {
-          if (!text2Set.has(el1.text)) {
+          const hasMatch = elements2.some(el2 =>
+            Math.abs(el2.bounds.x - el1.bounds.x) < 50 &&
+            Math.abs(el2.bounds.y - el1.bounds.y) < 50
+          );
+          if (hasMatch || text2Set.has(el1.text)) {
+            matchedFromPage1.add(el1);
+          }
+        });
+
+        elements1.forEach(el1 => {
+          if (!matchedFromPage1.has(el1)) {
             changed.push({
               type: 'Content',
               category: 'Content Removed',
