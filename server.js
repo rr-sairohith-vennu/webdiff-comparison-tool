@@ -33,14 +33,24 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static('public'));
-app.use('/screenshots', express.static(SCREENSHOTS_DIR, {
-  setHeaders: (res, path) => {
-    if (path.endsWith('.png')) {
-      res.set('Content-Type', 'image/png');
-      res.set('Cache-Control', 'public, max-age=31536000');
-    }
+
+// Custom screenshot handler to bypass Fly.io proxy content negotiation issues
+app.get('/screenshots/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const filepath = join(SCREENSHOTS_DIR, filename);
+
+  console.log(`Serving screenshot: ${filepath}`);
+
+  if (!existsSync(filepath)) {
+    console.log(`Screenshot not found: ${filepath}`);
+    return res.status(404).send('Not found');
   }
-}));
+
+  res.set('Content-Type', 'image/png');
+  res.set('Cache-Control', 'public, max-age=31536000');
+  res.sendFile(filepath);
+});
+
 app.use('/results', express.static(RESULTS_DIR));
 
 // Ensure directories exist
