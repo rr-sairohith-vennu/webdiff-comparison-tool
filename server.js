@@ -1549,9 +1549,7 @@ class UIComparisonEngine {
         screenshots: {
           url1: `screenshots/${screenshotPath1.split('/').pop()}`,
           url2: `screenshots/${screenshotPath2.split('/').pop()}`,
-          ...(highlightedResults && { highlighted: highlightedResults.highlighted }),
-          ...(highlightedResults && { diff: highlightedResults.highlighted.diff }),
-          ...(highlightedResults && { pixelDifferences: highlightedResults.pixelDifferences })
+          ...(highlightedResults && { highlighted: highlightedResults.highlighted })
         },
         data: { data1, data2 },
         differences,
