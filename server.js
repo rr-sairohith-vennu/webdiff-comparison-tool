@@ -18,14 +18,19 @@ const httpServer = createServer(app);
 const io = new Server(httpServer);
 const PORT = process.env.PORT || 4000;
 
+// Use persistent storage on Fly.io, fallback to local for development
+const DATA_DIR = process.env.FLY_APP_NAME ? '/app/data' : __dirname;
+const SCREENSHOTS_DIR = join(DATA_DIR, 'screenshots');
+const RESULTS_DIR = join(DATA_DIR, 'results');
+
 // Middleware
 app.use(express.json());
 app.use(express.static('public'));
-app.use('/screenshots', express.static('screenshots'));
-app.use('/results', express.static('results'));
+app.use('/screenshots', express.static(SCREENSHOTS_DIR));
+app.use('/results', express.static(RESULTS_DIR));
 
 // Ensure directories exist
-['screenshots', 'results', 'public'].forEach(dir => {
+[SCREENSHOTS_DIR, RESULTS_DIR, 'public'].forEach(dir => {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -985,8 +990,8 @@ class UIComparisonEngine {
   }
 
   async createSimpleHighlightedScreenshots(screenshotPath1, screenshotPath2, differences, timestamp) {
-    const annotatedPath1 = join('screenshots', `${timestamp}_url1_highlighted.png`);
-    const annotatedPath2 = join('screenshots', `${timestamp}_url2_highlighted.png`);
+    const annotatedPath1 = join(SCREENSHOTS_DIR, `${timestamp}_url1_highlighted.png`);
+    const annotatedPath2 = join(SCREENSHOTS_DIR, `${timestamp}_url2_highlighted.png`);
 
     // URL 1 (PROD) - Keep clean, no boxes
     const original1 = readFileSync(screenshotPath1);
@@ -1348,9 +1353,9 @@ class UIComparisonEngine {
       const differences = await this.identifyRegionChanges(page1, page2, regions);
 
       // Create annotated versions with colored boxes
-      const annotatedPath1 = join('screenshots', `${timestamp}_url1_highlighted.png`);
-      const annotatedPath2 = join('screenshots', `${timestamp}_url2_highlighted.png`);
-      const diffPath = join('screenshots', `${timestamp}_diff.png`);
+      const annotatedPath1 = join(SCREENSHOTS_DIR, `${timestamp}_url1_highlighted.png`);
+      const annotatedPath2 = join(SCREENSHOTS_DIR, `${timestamp}_url2_highlighted.png`);
+      const diffPath = join(SCREENSHOTS_DIR, `${timestamp}_diff.png`);
 
       // Save the pixel diff
       writeFileSync(diffPath, PNG.sync.write(diff));
@@ -1486,8 +1491,8 @@ class UIComparisonEngine {
       ]);
 
       this.emit('step', { step: 4, detail: '📸 Capturing page 1 screenshot...' });
-      const screenshotPath1 = join('screenshots', `${timestamp}_url1.png`);
-      const screenshotPath2 = join('screenshots', `${timestamp}_url2.png`);
+      const screenshotPath1 = join(SCREENSHOTS_DIR, `${timestamp}_url1.png`);
+      const screenshotPath2 = join(SCREENSHOTS_DIR, `${timestamp}_url2.png`);
 
       await page1.screenshot({ path: screenshotPath1, fullPage: true });
 
@@ -1631,7 +1636,7 @@ app.post('/api/compare', async (req, res) => {
       totalComparisons: results.length
     };
 
-    const resultPath = join('results', `${timestamp}.json`);
+    const resultPath = join(RESULTS_DIR, `${timestamp}.json`);
     writeFileSync(resultPath, JSON.stringify(combinedResult, null, 2));
 
     console.log(`✅ All comparisons completed: ${results.length} states compared`);
@@ -1674,7 +1679,7 @@ app.get('/api/results', (req, res) => {
 
 app.get('/api/results/:id', (req, res) => {
   try {
-    const resultPath = join('results', `${req.params.id}.json`);
+    const resultPath = join(RESULTS_DIR, `${req.params.id}.json`);
     if (!existsSync(resultPath)) {
       return res.status(404).json({ error: 'Result not found' });
     }
