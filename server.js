@@ -26,9 +26,17 @@ const RESULTS_DIR = join(DATA_DIR, 'results');
 // Middleware
 app.use(express.json());
 
-// Add logging for all requests
+// Disable content negotiation globally - accept all content types
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+
+  // Override Accept header to prevent Fly.io proxy from rejecting requests
+  req.headers['accept'] = '*/*';
+
+  // Set response headers to indicate we can serve any content
+  res.set('Accept-Ranges', 'bytes');
+  res.set('Access-Control-Allow-Origin', '*');
+
   next();
 });
 

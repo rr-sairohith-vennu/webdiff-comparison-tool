@@ -16,6 +16,12 @@ primary_region = 'sjc'
   min_machines_running = 0
   processes = ['app']
 
+  # Disable Fly.io proxy content negotiation - pass all requests to app
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
   [[http_service.checks]]
     grace_period = "10s"
     interval = "30s"
