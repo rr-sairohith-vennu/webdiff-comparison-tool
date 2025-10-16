@@ -492,6 +492,19 @@
               Enter button text or CSS selector. Use commas to compare multiple states
             </small>
           </div>
+
+          <div class="form-group">
+            <label for="cookies">🍪 Session Cookies (Optional - for authenticated pages)</label>
+            <textarea
+              id="cookies"
+              name="cookies"
+              placeholder='Paste cookies as JSON array, e.g.: [{"name":"RakutenToken","value":"abc123","domain":".rakuten.com"}]'
+              style="font-family: 'Monaco', 'Courier New', monospace; font-size: 12px;"
+            ></textarea>
+            <small style="display: block; margin-top: 8px; color: #86868b; font-size: 13px;">
+              💡 <strong>For Rakuten QA1/Preview URLs:</strong> Open DevTools (F12) → Application → Cookies → Copy as JSON
+            </small>
+          </div>
         </div>
 
         <button type="submit" class="btn" id="compareBtn">
@@ -593,6 +606,18 @@
       const url1 = document.getElementById('url1').value;
       const url2 = document.getElementById('url2').value;
       const clickAction = document.getElementById('clickAction').value.trim();
+      const cookiesInput = document.getElementById('cookies').value.trim();
+
+      // Parse cookies if provided
+      let cookies = null;
+      if (cookiesInput) {
+        try {
+          cookies = JSON.parse(cookiesInput);
+        } catch (err) {
+          alert('Invalid cookies format. Please provide a valid JSON array.');
+          return;
+        }
+      }
 
       document.getElementById('loading').classList.add('active');
       document.getElementById('results').classList.remove('active');
@@ -604,7 +629,7 @@
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ url1, url2, clickAction: clickAction || null })
+          body: JSON.stringify({ url1, url2, clickAction: clickAction || null, cookies })
         });
 
         const data = await response.json();

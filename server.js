@@ -1529,6 +1529,15 @@ class UIComparisonEngine {
         }
       };
 
+      // Add session cookies if provided (for authenticated pages)
+      if (this.config.cookies && Array.isArray(this.config.cookies) && this.config.cookies.length > 0) {
+        contextOptions.storageState = {
+          cookies: this.config.cookies,
+          origins: []
+        };
+        console.log(`  🍪 Applying ${this.config.cookies.length} session cookie(s) to browser context`);
+      }
+
       const context1 = await browser.newContext(contextOptions);
       const context2 = await browser.newContext(contextOptions);
 
@@ -1631,7 +1640,7 @@ io.on('connection', (socket) => {
 
 app.post('/api/compare', async (req, res) => {
   try {
-    const { url1, url2, description, clickAction } = req.body;
+    const { url1, url2, description, clickAction, cookies } = req.body;
 
     if (!url1 || !url2) {
       return res.status(400).json({ error: 'Both URLs are required' });
@@ -1647,6 +1656,9 @@ app.post('/api/compare', async (req, res) => {
     }
 
     console.log(`\n🔍 Starting comparison: ${url1} vs ${url2}`);
+    if (cookies && Array.isArray(cookies) && cookies.length > 0) {
+      console.log(`  🍪 Using ${cookies.length} session cookie(s) for authentication`);
+    }
 
     // Parse multiple click actions separated by commas
     // ALWAYS compare default view first, then compare button states if provided
@@ -1668,7 +1680,7 @@ app.post('/api/compare', async (req, res) => {
     for (const action of clickActions) {
       console.log(action ? `\n  📍 Comparing with "${action}" clicked...` : '\n  📍 Comparing default view...');
 
-      const engine = new UIComparisonEngine({ url1, url2, description, clickAction: action }, activeSocket);
+      const engine = new UIComparisonEngine({ url1, url2, description, clickAction: action, cookies }, activeSocket);
       const result = await engine.run();
 
       results.push({
