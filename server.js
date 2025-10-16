@@ -1509,8 +1509,28 @@ class UIComparisonEngine {
 
     try {
       this.emit('step', { step: 1, detail: 'Opening both URLs in browser...' });
-      const context1 = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
-      const context2 = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+
+      // Add realistic browser context to bypass authentication checks
+      const contextOptions = {
+        viewport: { width: 1920, height: 1080 },
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        extraHTTPHeaders: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"macOS"',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1'
+        }
+      };
+
+      const context1 = await browser.newContext(contextOptions);
+      const context2 = await browser.newContext(contextOptions);
 
       const page1 = await context1.newPage();
       const page2 = await context2.newPage();
